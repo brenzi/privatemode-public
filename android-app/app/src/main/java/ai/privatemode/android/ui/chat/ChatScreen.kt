@@ -104,6 +104,7 @@ fun ChatScreen(
     val searchApproved by viewModel.searchApprovedForChat.collectAsState()
     val pendingSearchApproval by viewModel.pendingSearchApproval.collectAsState()
     val attachedFiles by viewModel.attachedFiles.collectAsState()
+    val filteredModels by viewModel.filteredModels.collectAsState()
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
 
     val messages = currentChat?.messages ?: emptyList()
@@ -198,7 +199,7 @@ fun ChatScreen(
             maxWords = viewModel.getMaxWords(),
             messageWordCount = countWords(messageText),
             attachedFilesWordCount = attachedFiles.sumOf { countWords(it.content) },
-            filteredModels = viewModel.getFilteredModels(),
+            filteredModels = filteredModels,
         )
     }
 

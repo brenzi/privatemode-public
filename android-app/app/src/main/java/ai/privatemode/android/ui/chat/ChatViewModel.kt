@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import ai.privatemode.android.data.model.ApiModel
 import ai.privatemode.android.data.model.AttachedFile
 import ai.privatemode.android.data.model.Chat
 import ai.privatemode.android.data.model.MODEL_CONFIG
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
@@ -111,6 +113,10 @@ If you can answer from your existing knowledge, answer normally without using th
     val currentChat: StateFlow<Chat?> = combine(chats, currentChatId) { chats, chatId ->
         chatId?.let { id -> chats.find { it.id == id } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val filteredModels: StateFlow<List<ApiModel>> = repository.availableModels
+        .map { available -> MODEL_CONFIG.keys.mapNotNull { id -> available.find { it.id == id } } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch {
@@ -616,8 +622,6 @@ If you can answer from your existing knowledge, answer normally without using th
         val model = _selectedModel.value ?: return false
         return MODEL_CONFIG[model]?.supportsExtendedThinking ?: false
     }
-
-    fun getFilteredModels() = repository.getFilteredModels()
 
     private fun getFileName(context: Context, uri: Uri): String {
         var name = "file"

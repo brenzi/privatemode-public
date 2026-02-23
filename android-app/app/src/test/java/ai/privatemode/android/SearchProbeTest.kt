@@ -290,6 +290,7 @@ class SearchProbeTest {
             every { chats } returns MutableStateFlow(emptyList<Chat>())
             every { currentChatId } returns MutableStateFlow<String?>(null)
             every { modelsLoaded } returns MutableStateFlow(true)
+            every { availableModels } returns MutableStateFlow(emptyList())
             every { selectedModel } returns flowOf(modelId)
             every { extendedThinking } returns flowOf(false)
 
