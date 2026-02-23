@@ -75,6 +75,7 @@ class PrivatemodeClient(
         systemPrompt: String? = null,
         reasoningEffort: String? = null,
         searchContext: String? = null,
+        supportsSystemRole: Boolean = true,
     ): Flow<String> = callbackFlow {
         val apiMessages = mutableListOf<JsonObject>()
 
@@ -105,9 +106,11 @@ class PrivatemodeClient(
             })
         }
 
+        val consolidatedMessages = consolidateMessages(apiMessages, supportsSystemRole)
+
         val requestBody = JsonObject().apply {
             addProperty("model", model)
-            add("messages", gson.toJsonTree(apiMessages))
+            add("messages", gson.toJsonTree(consolidatedMessages))
             addProperty("stream", true)
             if (reasoningEffort != null) {
                 addProperty("reasoning_effort", reasoningEffort)
@@ -226,6 +229,46 @@ class PrivatemodeClient(
             val elements = gson.fromJson(body, Array<UnstructuredElement>::class.java)
             elements.toList()
         }
+
+    /**
+     * Ensures the message list conforms to model expectations:
+     * 1. If [supportsSystemRole] is false, convert system messages to user role.
+     * 2. Merge consecutive messages that share the same role.
+     */
+    private fun consolidateMessages(
+        messages: List<JsonObject>,
+        supportsSystemRole: Boolean,
+    ): List<JsonObject> {
+        if (messages.isEmpty()) return messages
+
+        val normalized = if (supportsSystemRole) {
+            messages
+        } else {
+            messages.map { msg ->
+                if (msg.get("role").asString == "system") {
+                    JsonObject().apply {
+                        addProperty("role", "user")
+                        addProperty("content", msg.get("content").asString)
+                    }
+                } else {
+                    msg
+                }
+            }
+        }
+
+        val result = mutableListOf<JsonObject>()
+        for (msg in normalized) {
+            val role = msg.get("role").asString
+            val last = result.lastOrNull()
+            if (last != null && last.get("role").asString == role) {
+                val merged = last.get("content").asString + "\n\n" + msg.get("content").asString
+                last.addProperty("content", merged)
+            } else {
+                result.add(msg.deepCopy())
+            }
+        }
+        return result
+    }
 
     private fun parseApiError(code: Int, message: String, errorBody: String?): ApiException {
         if (errorBody != null) {

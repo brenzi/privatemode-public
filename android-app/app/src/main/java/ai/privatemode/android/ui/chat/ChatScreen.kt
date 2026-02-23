@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -98,7 +99,8 @@ fun ChatScreen(
     val messageText by viewModel.messageText.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
     val extendedThinking by viewModel.extendedThinking.collectAsState()
-    val webSearch by viewModel.webSearch.collectAsState()
+    val searchApproved by viewModel.searchApprovedForChat.collectAsState()
+    val pendingSearchApproval by viewModel.pendingSearchApproval.collectAsState()
     val attachedFiles by viewModel.attachedFiles.collectAsState()
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
 
@@ -176,7 +178,7 @@ fun ChatScreen(
             onMessageChange = { viewModel.setMessageText(it) },
             selectedModel = selectedModel,
             extendedThinking = extendedThinking,
-            webSearch = webSearch,
+            searchApproved = searchApproved,
             isGenerating = isGenerating,
             isUploading = isUploading,
             attachedFiles = attachedFiles,
@@ -184,7 +186,6 @@ fun ChatScreen(
             onStop = { viewModel.stopGeneration() },
             onModelSelect = { viewModel.selectModel(it) },
             onToggleThinking = { viewModel.toggleExtendedThinking() },
-            onToggleWebSearch = { viewModel.toggleWebSearch() },
             onAttachFile = { context, uri -> viewModel.uploadFile(context, uri) },
             onRemoveFile = { viewModel.removeAttachedFile(it) },
             supportsFileUploads = viewModel.supportsFileUploads(),
@@ -194,6 +195,16 @@ fun ChatScreen(
             messageWordCount = countWords(messageText),
             attachedFilesWordCount = attachedFiles.sumOf { countWords(it.content) },
             filteredModels = viewModel.getFilteredModels(),
+        )
+    }
+
+    pendingSearchApproval?.let { pending ->
+        SearchApprovalDialog(
+            query = pending.query,
+            onApprove = { viewModel.approveSearch() },
+            onApproveAll = { viewModel.approveAllSearches() },
+            onSkip = { viewModel.answerWithoutSearch() },
+            onNever = { viewModel.neverSearchThisChat() },
         )
     }
 }
@@ -375,7 +386,7 @@ private fun ChatInputBar(
     onMessageChange: (String) -> Unit,
     selectedModel: String?,
     extendedThinking: Boolean,
-    webSearch: Boolean,
+    searchApproved: Boolean,
     isGenerating: Boolean,
     isUploading: Boolean,
     attachedFiles: List<ai.privatemode.android.data.model.AttachedFile>,
@@ -383,7 +394,6 @@ private fun ChatInputBar(
     onStop: () -> Unit,
     onModelSelect: (String) -> Unit,
     onToggleThinking: () -> Unit,
-    onToggleWebSearch: () -> Unit,
     onAttachFile: (context: android.content.Context, uri: android.net.Uri) -> Unit,
     onRemoveFile: (Int) -> Unit,
     supportsFileUploads: Boolean,
@@ -533,19 +543,13 @@ private fun ChatInputBar(
                         }
                     }
 
-                    // Web search toggle
-                    IconButton(
-                        onClick = onToggleWebSearch,
-                        enabled = !isGenerating,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = "Web search",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (webSearch) Purple else TextSecondary,
-                        )
-                    }
+                    // Web search indicator (read-only)
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = "Web search",
+                        modifier = Modifier.size(20.dp).padding(8.dp),
+                        tint = if (searchApproved) Purple else TextSecondary.copy(alpha = 0.3f),
+                    )
                 }
 
                 // Right controls
@@ -680,4 +684,40 @@ private fun ModelPickerButton(
             }
         }
     }
+}
+
+@Composable
+private fun SearchApprovalDialog(
+    query: String,
+    onApprove: () -> Unit,
+    onApproveAll: () -> Unit,
+    onSkip: () -> Unit,
+    onNever: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = {},
+        title = { Text("Web search requested") },
+        text = {
+            Column {
+                Text("The model wants to search the web for:")
+                Spacer(Modifier.height(8.dp))
+                Surface(shape = RoundedCornerShape(8.dp), color = BackgroundLight) {
+                    Text(
+                        text = query,
+                        modifier = Modifier.padding(12.dp),
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Column {
+                TextButton(onClick = onApprove) { Text("Approve this search") }
+                TextButton(onClick = onApproveAll) { Text("Approve all for this chat") }
+                TextButton(onClick = onSkip) { Text("Answer without searching") }
+                TextButton(onClick = onNever) { Text("Never search in this chat") }
+            }
+        },
+    )
 }

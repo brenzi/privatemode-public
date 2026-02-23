@@ -8,6 +8,7 @@ data class ModelInfo(
     val systemPrompt: String,
     val supportsExtendedThinking: Boolean = false,
     val supportsFileUploads: Boolean,
+    val supportsSystemRole: Boolean = true,
     val maxWords: Int = 70000,
 )
 
@@ -51,6 +52,7 @@ val MODEL_CONFIG: Map<String, ModelInfo> = mapOf(
         subtitle = "Multi-modal model with image understanding",
         systemPrompt = getSystemPrompt("Gemma 3 27B"),
         supportsFileUploads = false,
+        supportsSystemRole = false,
         maxWords = 70000,
     ),
     "qwen3-coder-30b-a3b" to ModelInfo(

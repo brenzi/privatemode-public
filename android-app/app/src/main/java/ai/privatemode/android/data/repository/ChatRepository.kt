@@ -117,9 +117,10 @@ class ChatRepository(
         systemPrompt: String?,
         reasoningEffort: String?,
         searchContext: String? = null,
+        supportsSystemRole: Boolean = true,
     ): kotlinx.coroutines.flow.Flow<String> {
         val client = createClient() ?: throw IllegalStateException("API key not configured")
-        return client.streamChatCompletion(model, messages, systemPrompt, reasoningEffort, searchContext)
+        return client.streamChatCompletion(model, messages, systemPrompt, reasoningEffort, searchContext, supportsSystemRole)
     }
 
     suspend fun uploadFile(file: File, fileName: String): List<UnstructuredElement> {

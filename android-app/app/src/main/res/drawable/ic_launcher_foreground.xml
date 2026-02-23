@@ -4,14 +4,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Shield icon representing privacy -->
+    <!-- Purple dot (above the i) -->
     <path
         android:fillColor="#7A49F6"
-        android:pathData="M54,20L24,33v16.5c0,15.83,12.8,30.64,30,34.5c17.2,-3.86,30,-18.67,30,-34.5V33L54,20z" />
+        android:pathData="M37,30.5C37,34.09 34.09,37 30.5,37C26.91,37 24,34.09 24,30.5C24,26.91 26.91,24 30.5,24C34.09,24 37,26.91 37,30.5Z" />
+    <!-- Vertical bar (i stem) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,28L32,38v12c0,12.1,9.4,23.4,22,26.4c12.6,-3,22,-14.3,22,-26.4V38L54,28z" />
+        android:pathData="M40,46H52V84H40V46Z" />
+    <!-- Ring (o shape) -->
     <path
-        android:fillColor="#7A49F6"
-        android:pathData="M49,55l-7,-7l2.8,-2.8L49,49.4l12.2,-12.2L64,40L49,55z" />
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M62,56C67.52,56 72,51.52 72,46C72,40.48 67.52,36 62,36C56.48,36 52,40.48 52,46C52,51.52 56.48,56 62,56ZM62,68C74.15,68 84,58.15 84,46C84,33.85 74.15,24 62,24C49.85,24 40,33.85 40,46C40,58.15 49.85,68 62,68Z" />
 </vector>
