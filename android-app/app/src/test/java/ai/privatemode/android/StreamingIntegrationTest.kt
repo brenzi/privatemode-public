@@ -4,6 +4,8 @@ import ai.privatemode.android.data.model.Message
 import ai.privatemode.android.data.model.MessageRole
 import ai.privatemode.android.data.remote.ApiException
 import ai.privatemode.android.data.remote.PrivatemodeClient
+import com.google.gson.Gson
+import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
@@ -123,6 +125,76 @@ class StreamingIntegrationTest {
         } catch (e: ApiException) {
             assertTrue(e.message!!.contains("secure proxy"))
         }
+    }
+
+    @Test
+    fun `searchContext is injected as second system message`() = runTest {
+        val sseBody = """
+            data: {"id":"1","object":"chat.completion.chunk","created":1234,"model":"test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}
+
+            data: [DONE]
+
+        """.trimIndent()
+
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody)
+        )
+
+        val messages = listOf(Message(role = MessageRole.USER, content = "Hi"))
+        client.streamChatCompletion(
+            "test-model",
+            messages,
+            systemPrompt = "You are helpful.",
+            searchContext = "[Web Search Results]\n1. Test result",
+        ).toList()
+
+        val request = server.takeRequest()
+        val body = Gson().fromJson(request.body.readUtf8(), JsonObject::class.java)
+        val apiMessages = body.getAsJsonArray("messages")
+
+        // system prompt, search context, user message
+        assertEquals(3, apiMessages.size())
+        assertEquals("system", apiMessages[0].asJsonObject.get("role").asString)
+        assertEquals("You are helpful.", apiMessages[0].asJsonObject.get("content").asString)
+        assertEquals("system", apiMessages[1].asJsonObject.get("role").asString)
+        assertTrue(apiMessages[1].asJsonObject.get("content").asString.contains("[Web Search Results]"))
+        assertEquals("user", apiMessages[2].asJsonObject.get("role").asString)
+    }
+
+    @Test
+    fun `searchContext is omitted when null`() = runTest {
+        val sseBody = """
+            data: {"id":"1","object":"chat.completion.chunk","created":1234,"model":"test","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":null}]}
+
+            data: [DONE]
+
+        """.trimIndent()
+
+        server.enqueue(
+            MockResponse()
+                .setResponseCode(200)
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody(sseBody)
+        )
+
+        val messages = listOf(Message(role = MessageRole.USER, content = "Hi"))
+        client.streamChatCompletion(
+            "test-model",
+            messages,
+            systemPrompt = "You are helpful.",
+        ).toList()
+
+        val request = server.takeRequest()
+        val body = Gson().fromJson(request.body.readUtf8(), JsonObject::class.java)
+        val apiMessages = body.getAsJsonArray("messages")
+
+        // system prompt + user message only (no search context)
+        assertEquals(2, apiMessages.size())
+        assertEquals("system", apiMessages[0].asJsonObject.get("role").asString)
+        assertEquals("user", apiMessages[1].asJsonObject.get("role").asString)
     }
 
     @Test

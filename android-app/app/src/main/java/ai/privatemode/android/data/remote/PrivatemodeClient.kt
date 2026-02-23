@@ -74,6 +74,7 @@ class PrivatemodeClient(
         messages: List<Message>,
         systemPrompt: String? = null,
         reasoningEffort: String? = null,
+        searchContext: String? = null,
     ): Flow<String> = callbackFlow {
         val apiMessages = mutableListOf<JsonObject>()
 
@@ -81,6 +82,13 @@ class PrivatemodeClient(
             apiMessages.add(JsonObject().apply {
                 addProperty("role", "system")
                 addProperty("content", systemPrompt)
+            })
+        }
+
+        if (searchContext != null) {
+            apiMessages.add(JsonObject().apply {
+                addProperty("role", "system")
+                addProperty("content", searchContext)
             })
         }
 

@@ -12,6 +12,7 @@ import ai.privatemode.android.data.model.MODEL_CONFIG
 import ai.privatemode.android.data.model.MessageRole
 import ai.privatemode.android.data.model.countWords
 import ai.privatemode.android.data.remote.ApiException
+import ai.privatemode.android.data.remote.StartpageSearchClient
 import ai.privatemode.android.data.repository.ChatRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,9 @@ class ChatViewModel(
 
     private val _extendedThinking = MutableStateFlow(false)
     val extendedThinking: StateFlow<Boolean> = _extendedThinking.asStateFlow()
+
+    private val _webSearch = MutableStateFlow(false)
+    val webSearch: StateFlow<Boolean> = _webSearch.asStateFlow()
 
     private val _isGenerating = MutableStateFlow(false)
     val isGenerating: StateFlow<Boolean> = _isGenerating.asStateFlow()
@@ -69,6 +73,11 @@ class ChatViewModel(
                 _extendedThinking.value = enabled
             }
         }
+        viewModelScope.launch {
+            repository.webSearch.collect { enabled ->
+                _webSearch.value = enabled
+            }
+        }
     }
 
     fun loadModels() {
@@ -93,6 +102,14 @@ class ChatViewModel(
         _extendedThinking.value = newValue
         viewModelScope.launch {
             repository.setExtendedThinking(newValue)
+        }
+    }
+
+    fun toggleWebSearch() {
+        val newValue = !_webSearch.value
+        _webSearch.value = newValue
+        viewModelScope.launch {
+            repository.setWebSearch(newValue)
         }
     }
 
@@ -206,7 +223,39 @@ class ChatViewModel(
                     val reasoningEffort = if (_extendedThinking.value) "high" else "medium"
                     val systemPrompt = modelInfo?.systemPrompt
 
-                    Log.i(TAG, "sendMessage: model=$model messages=${messagesToSend.size} reasoning=$reasoningEffort")
+                    var searchContext: String? = null
+                    if (_webSearch.value) {
+                        try {
+                            repository.updateMessage(chatId, assistantMessageId, "Searching the web...")
+                            val searchClient = StartpageSearchClient()
+                            val results = searchClient.search(text)
+                            if (results.isNotEmpty()) {
+                                val topPageContent = searchClient.fetchPageContent(results[0].url)
+                                searchContext = buildString {
+                                    appendLine("[Web Search Results]")
+                                    results.forEachIndexed { i, r ->
+                                        appendLine("${i + 1}. ${r.title}")
+                                        appendLine("   ${r.snippet}")
+                                        appendLine("   Source: ${r.url}")
+                                    }
+                                    if (topPageContent != null) {
+                                        appendLine()
+                                        appendLine("[Full content of top result: ${results[0].title}]")
+                                        appendLine(topPageContent)
+                                        appendLine("[End of full content]")
+                                    }
+                                    appendLine()
+                                    appendLine("Use these results to inform your response. Cite sources when relevant.")
+                                }
+                            }
+                            repository.updateMessage(chatId, assistantMessageId, "")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Web search failed, proceeding without results", e)
+                            repository.updateMessage(chatId, assistantMessageId, "")
+                        }
+                    }
+
+                    Log.i(TAG, "sendMessage: model=$model messages=${messagesToSend.size} reasoning=$reasoningEffort webSearch=${searchContext != null}")
 
                     var accumulatedContent = ""
                     var lastUpdate = 0L
@@ -217,6 +266,7 @@ class ChatViewModel(
                         messages = messagesToSend,
                         systemPrompt = systemPrompt,
                         reasoningEffort = reasoningEffort,
+                        searchContext = searchContext,
                     ).collect { chunk ->
                         accumulatedContent += chunk
                         val now = System.currentTimeMillis()

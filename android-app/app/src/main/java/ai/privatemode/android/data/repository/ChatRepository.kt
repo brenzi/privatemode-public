@@ -39,6 +39,7 @@ class ChatRepository(
     val apiKey: Flow<String?> = preferences.apiKey
     val selectedModel: Flow<String?> = preferences.selectedModel
     val extendedThinking: Flow<Boolean> = preferences.extendedThinking
+    val webSearch: Flow<Boolean> = preferences.webSearch
     val serverUrl: Flow<String> = preferences.serverUrl
 
     private suspend fun createClient(): PrivatemodeClient? {
@@ -115,9 +116,10 @@ class ChatRepository(
         messages: List<Message>,
         systemPrompt: String?,
         reasoningEffort: String?,
+        searchContext: String? = null,
     ): kotlinx.coroutines.flow.Flow<String> {
         val client = createClient() ?: throw IllegalStateException("API key not configured")
-        return client.streamChatCompletion(model, messages, systemPrompt, reasoningEffort)
+        return client.streamChatCompletion(model, messages, systemPrompt, reasoningEffort, searchContext)
     }
 
     suspend fun uploadFile(file: File, fileName: String): List<UnstructuredElement> {
@@ -139,6 +141,10 @@ class ChatRepository(
 
     suspend fun setExtendedThinking(enabled: Boolean) {
         preferences.setExtendedThinking(enabled)
+    }
+
+    suspend fun setWebSearch(enabled: Boolean) {
+        preferences.setWebSearch(enabled)
     }
 
     suspend fun setServerUrl(url: String) {

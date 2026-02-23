@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.DropdownMenu
@@ -97,6 +98,7 @@ fun ChatScreen(
     val messageText by viewModel.messageText.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
     val extendedThinking by viewModel.extendedThinking.collectAsState()
+    val webSearch by viewModel.webSearch.collectAsState()
     val attachedFiles by viewModel.attachedFiles.collectAsState()
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
 
@@ -174,6 +176,7 @@ fun ChatScreen(
             onMessageChange = { viewModel.setMessageText(it) },
             selectedModel = selectedModel,
             extendedThinking = extendedThinking,
+            webSearch = webSearch,
             isGenerating = isGenerating,
             isUploading = isUploading,
             attachedFiles = attachedFiles,
@@ -181,6 +184,7 @@ fun ChatScreen(
             onStop = { viewModel.stopGeneration() },
             onModelSelect = { viewModel.selectModel(it) },
             onToggleThinking = { viewModel.toggleExtendedThinking() },
+            onToggleWebSearch = { viewModel.toggleWebSearch() },
             onAttachFile = { context, uri -> viewModel.uploadFile(context, uri) },
             onRemoveFile = { viewModel.removeAttachedFile(it) },
             supportsFileUploads = viewModel.supportsFileUploads(),
@@ -371,6 +375,7 @@ private fun ChatInputBar(
     onMessageChange: (String) -> Unit,
     selectedModel: String?,
     extendedThinking: Boolean,
+    webSearch: Boolean,
     isGenerating: Boolean,
     isUploading: Boolean,
     attachedFiles: List<ai.privatemode.android.data.model.AttachedFile>,
@@ -378,6 +383,7 @@ private fun ChatInputBar(
     onStop: () -> Unit,
     onModelSelect: (String) -> Unit,
     onToggleThinking: () -> Unit,
+    onToggleWebSearch: () -> Unit,
     onAttachFile: (context: android.content.Context, uri: android.net.Uri) -> Unit,
     onRemoveFile: (Int) -> Unit,
     supportsFileUploads: Boolean,
@@ -525,6 +531,20 @@ private fun ChatInputBar(
                                 tint = if (extendedThinking) Purple else TextSecondary,
                             )
                         }
+                    }
+
+                    // Web search toggle
+                    IconButton(
+                        onClick = onToggleWebSearch,
+                        enabled = !isGenerating,
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Web search",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (webSearch) Purple else TextSecondary,
+                        )
                     }
                 }
 

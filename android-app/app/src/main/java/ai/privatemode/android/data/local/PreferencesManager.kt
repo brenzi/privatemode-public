@@ -22,6 +22,7 @@ class PreferencesManager(private val context: Context) {
         private val SERVER_URL = stringPreferencesKey("server_url")
         private val SELECTED_MODEL = stringPreferencesKey("selected_model")
         private val EXTENDED_THINKING = booleanPreferencesKey("extended_thinking")
+        private val WEB_SEARCH = booleanPreferencesKey("web_search")
 
         const val DEFAULT_SERVER_URL = "https://api.privatemode.ai"
     }
@@ -40,6 +41,10 @@ class PreferencesManager(private val context: Context) {
 
     val extendedThinking: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[EXTENDED_THINKING] ?: false
+    }
+
+    val webSearch: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[WEB_SEARCH] ?: false
     }
 
     suspend fun getApiKey(): String? {
@@ -78,6 +83,12 @@ class PreferencesManager(private val context: Context) {
     suspend fun setExtendedThinking(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[EXTENDED_THINKING] = enabled
+        }
+    }
+
+    suspend fun setWebSearch(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[WEB_SEARCH] = enabled
         }
     }
 }

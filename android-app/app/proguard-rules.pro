@@ -12,6 +12,9 @@
 # Native proxy (JNI)
 -keep class ai.privatemode.android.proxy.** { *; }
 
+# Jsoup
+-keep class org.jsoup.** { *; }
+
 # Markwon
 -keep class io.noties.markwon.** { *; }
 -keep class io.noties.prism4j.** { *; }
