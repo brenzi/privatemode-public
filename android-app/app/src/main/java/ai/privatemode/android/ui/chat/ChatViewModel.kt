@@ -1,7 +1,10 @@
 package ai.privatemode.android.ui.chat
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Base64
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +27,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.time.ZonedDateTime
@@ -200,6 +204,48 @@ If you can answer from your existing knowledge, answer normally without using th
                 tempFile.delete()
             } catch (e: Exception) {
                 // The UI will show an error via snackbar
+                throw e
+            } finally {
+                _isUploading.value = false
+            }
+        }
+    }
+
+    fun attachImage(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            _isUploading.value = true
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                    ?: throw Exception("Cannot open image")
+                val bitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream.close()
+                bitmap ?: throw Exception("Cannot decode image")
+
+                val maxDim = 1024
+                val scaled = if (bitmap.width > maxDim || bitmap.height > maxDim) {
+                    val scale = maxDim.toFloat() / maxOf(bitmap.width, bitmap.height)
+                    Bitmap.createScaledBitmap(
+                        bitmap,
+                        (bitmap.width * scale).toInt(),
+                        (bitmap.height * scale).toInt(),
+                        true,
+                    )
+                } else {
+                    bitmap
+                }
+
+                val baos = ByteArrayOutputStream()
+                scaled.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                val base64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+
+                val fileName = getFileName(context, uri)
+                _attachedFiles.value = _attachedFiles.value + AttachedFile(
+                    name = fileName,
+                    content = "",
+                    imageBase64 = base64,
+                    mimeType = "image/jpeg",
+                )
+            } catch (e: Exception) {
                 throw e
             } finally {
                 _isUploading.value = false
@@ -557,7 +603,13 @@ If you can answer from your existing knowledge, answer normally without using th
 
     fun supportsFileUploads(): Boolean {
         val model = _selectedModel.value ?: return true
-        return MODEL_CONFIG[model]?.supportsFileUploads ?: false
+        val config = MODEL_CONFIG[model] ?: return false
+        return config.supportsFileUploads || config.supportsImageInput
+    }
+
+    fun supportsImageInput(): Boolean {
+        val model = _selectedModel.value ?: return false
+        return MODEL_CONFIG[model]?.supportsImageInput ?: false
     }
 
     fun supportsExtendedThinking(): Boolean {

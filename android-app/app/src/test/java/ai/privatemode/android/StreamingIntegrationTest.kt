@@ -155,13 +155,12 @@ class StreamingIntegrationTest {
         val body = Gson().fromJson(request.body.readUtf8(), JsonObject::class.java)
         val apiMessages = body.getAsJsonArray("messages")
 
-        // system prompt, search context, user message
-        assertEquals(3, apiMessages.size())
+        // system prompt + search context merged, then user message
+        assertEquals(2, apiMessages.size())
         assertEquals("system", apiMessages[0].asJsonObject.get("role").asString)
-        assertEquals("You are helpful.", apiMessages[0].asJsonObject.get("content").asString)
-        assertEquals("system", apiMessages[1].asJsonObject.get("role").asString)
-        assertTrue(apiMessages[1].asJsonObject.get("content").asString.contains("[Web Search Results]"))
-        assertEquals("user", apiMessages[2].asJsonObject.get("role").asString)
+        assertTrue(apiMessages[0].asJsonObject.get("content").asString.contains("You are helpful."))
+        assertTrue(apiMessages[0].asJsonObject.get("content").asString.contains("[Web Search Results]"))
+        assertEquals("user", apiMessages[1].asJsonObject.get("role").asString)
     }
 
     @Test

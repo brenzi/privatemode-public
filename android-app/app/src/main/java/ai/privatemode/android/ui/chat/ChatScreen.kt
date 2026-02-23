@@ -32,6 +32,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -187,8 +189,10 @@ fun ChatScreen(
             onModelSelect = { viewModel.selectModel(it) },
             onToggleThinking = { viewModel.toggleExtendedThinking() },
             onAttachFile = { context, uri -> viewModel.uploadFile(context, uri) },
+            onAttachImage = { context, uri -> viewModel.attachImage(context, uri) },
             onRemoveFile = { viewModel.removeAttachedFile(it) },
             supportsFileUploads = viewModel.supportsFileUploads(),
+            supportsImageInput = viewModel.supportsImageInput(),
             supportsExtendedThinking = viewModel.supportsExtendedThinking(),
             wordCount = viewModel.getWordCount(),
             maxWords = viewModel.getMaxWords(),
@@ -395,8 +399,10 @@ private fun ChatInputBar(
     onModelSelect: (String) -> Unit,
     onToggleThinking: () -> Unit,
     onAttachFile: (context: android.content.Context, uri: android.net.Uri) -> Unit,
+    onAttachImage: (context: android.content.Context, uri: android.net.Uri) -> Unit,
     onRemoveFile: (Int) -> Unit,
     supportsFileUploads: Boolean,
+    supportsImageInput: Boolean,
     supportsExtendedThinking: Boolean,
     wordCount: Int,
     maxWords: Int,
@@ -416,6 +422,41 @@ private fun ChatInputBar(
             onAttachFile(context, uri)
         }
     }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            onAttachImage(context, uri)
+        }
+    }
+
+    var cameraImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success) {
+            cameraImageUri?.let { onAttachImage(context, it) }
+        }
+    }
+
+    val launchCamera = {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            java.io.File(context.cacheDir, "camera_${System.currentTimeMillis()}.jpg"),
+        )
+        cameraImageUri = uri
+        cameraLauncher.launch(uri)
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) launchCamera()
+    }
+
+    var showAttachMenu by remember { mutableStateOf(false) }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -444,7 +485,7 @@ private fun ChatInputBar(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Icon(
-                                    Icons.Default.Description,
+                                    if (file.imageBase64 != null) Icons.Default.Image else Icons.Default.Description,
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp),
                                     tint = TextSecondary,
@@ -506,17 +547,57 @@ private fun ChatInputBar(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     // Attach button
-                    IconButton(
-                        onClick = { filePickerLauncher.launch("*/*") },
-                        enabled = !isGenerating && !isUploading && supportsFileUploads,
-                        modifier = Modifier.size(36.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.AttachFile,
-                            contentDescription = "Attach file",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (supportsFileUploads) TextSecondary else TextTertiary,
-                        )
+                    Box {
+                        IconButton(
+                            onClick = {
+                                if (supportsImageInput) {
+                                    showAttachMenu = true
+                                } else {
+                                    filePickerLauncher.launch("*/*")
+                                }
+                            },
+                            enabled = !isGenerating && !isUploading && supportsFileUploads,
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.AttachFile,
+                                contentDescription = "Attach file",
+                                modifier = Modifier.size(20.dp),
+                                tint = if (supportsFileUploads) TextSecondary else TextTertiary,
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showAttachMenu,
+                            onDismissRequest = { showAttachMenu = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Photo Gallery") },
+                                onClick = {
+                                    showAttachMenu = false
+                                    imagePickerLauncher.launch("image/*")
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(20.dp))
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Camera") },
+                                onClick = {
+                                    showAttachMenu = false
+                                    val hasPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                                        context, android.Manifest.permission.CAMERA,
+                                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (hasPerm) {
+                                        launchCamera()
+                                    } else {
+                                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                    }
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
+                                },
+                            )
+                        }
                     }
 
                     if (isUploading) {

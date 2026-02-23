@@ -94,16 +94,40 @@ class PrivatemodeClient(
         }
 
         for (msg in messages) {
-            msg.attachedFiles?.forEach { file ->
+            val imageFiles = msg.attachedFiles?.filter { it.imageBase64 != null } ?: emptyList()
+            val textFiles = msg.attachedFiles?.filter { it.imageBase64 == null } ?: emptyList()
+
+            textFiles.forEach { file ->
                 apiMessages.add(JsonObject().apply {
                     addProperty("role", msg.role.toApiString())
                     addProperty("content", "[File: ${file.name}]\n\n${file.content}")
                 })
             }
-            apiMessages.add(JsonObject().apply {
-                addProperty("role", msg.role.toApiString())
-                addProperty("content", msg.content)
-            })
+
+            if (imageFiles.isNotEmpty()) {
+                val contentParts = com.google.gson.JsonArray()
+                for (img in imageFiles) {
+                    contentParts.add(JsonObject().apply {
+                        addProperty("type", "image_url")
+                        add("image_url", JsonObject().apply {
+                            addProperty("url", "data:${img.mimeType ?: "image/jpeg"};base64,${img.imageBase64}")
+                        })
+                    })
+                }
+                contentParts.add(JsonObject().apply {
+                    addProperty("type", "text")
+                    addProperty("text", msg.content)
+                })
+                apiMessages.add(JsonObject().apply {
+                    addProperty("role", msg.role.toApiString())
+                    add("content", contentParts)
+                })
+            } else {
+                apiMessages.add(JsonObject().apply {
+                    addProperty("role", msg.role.toApiString())
+                    addProperty("content", msg.content)
+                })
+            }
         }
 
         val consolidatedMessages = consolidateMessages(apiMessages, supportsSystemRole)
@@ -248,6 +272,7 @@ class PrivatemodeClient(
                 if (msg.get("role").asString == "system") {
                     JsonObject().apply {
                         addProperty("role", "user")
+                        // System messages are always plain text
                         addProperty("content", msg.get("content").asString)
                     }
                 } else {
@@ -260,11 +285,29 @@ class PrivatemodeClient(
         for (msg in normalized) {
             val role = msg.get("role").asString
             val last = result.lastOrNull()
-            if (last != null && last.get("role").asString == role) {
-                val merged = last.get("content").asString + "\n\n" + msg.get("content").asString
-                last.addProperty("content", merged)
-            } else {
+            if (last == null || last.get("role").asString != role) {
                 result.add(msg.deepCopy())
+                continue
+            }
+            val lastContent = last.get("content")
+            val msgContent = msg.get("content")
+            if (lastContent.isJsonPrimitive && msgContent.isJsonPrimitive) {
+                // Both text — concatenate
+                last.addProperty("content", lastContent.asString + "\n\n" + msgContent.asString)
+            } else {
+                // At least one is an array — merge into a single array
+                val parts = com.google.gson.JsonArray()
+                if (lastContent.isJsonPrimitive) {
+                    parts.add(JsonObject().apply { addProperty("type", "text"); addProperty("text", lastContent.asString) })
+                } else {
+                    lastContent.asJsonArray.forEach { parts.add(it) }
+                }
+                if (msgContent.isJsonPrimitive) {
+                    parts.add(JsonObject().apply { addProperty("type", "text"); addProperty("text", msgContent.asString) })
+                } else {
+                    msgContent.asJsonArray.forEach { parts.add(it) }
+                }
+                last.add("content", parts)
             }
         }
         return result

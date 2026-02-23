@@ -5,6 +5,8 @@ import java.util.UUID
 data class AttachedFile(
     val name: String,
     val content: String,
+    val imageBase64: String? = null,
+    val mimeType: String? = null,
 )
 
 data class Message(
