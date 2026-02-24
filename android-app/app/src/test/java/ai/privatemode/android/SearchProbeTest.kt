@@ -5,6 +5,8 @@ import ai.privatemode.android.data.model.Message
 import ai.privatemode.android.data.model.MessageRole
 import ai.privatemode.android.data.repository.ChatRepository
 import ai.privatemode.android.ui.chat.ChatViewModel
+import ai.privatemode.android.whisper.WhisperManager
+import ai.privatemode.android.whisper.WhisperModelState
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -79,7 +81,7 @@ class SearchProbeTest {
     @Test
     fun `first message sends probe in system prompt`() {
         val repo = createMockRepo(modelResponse = "Normal answer.")
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("What are today's headlines?")
         vm.sendMessage()
@@ -97,7 +99,7 @@ class SearchProbeTest {
     @Test
     fun `system prompt still contains base prompt when probe appended`() {
         val repo = createMockRepo(modelResponse = "Answer.")
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("Test")
         vm.sendMessage()
@@ -114,7 +116,7 @@ class SearchProbeTest {
     @Test
     fun `system prompt includes current date and time`() {
         val repo = createMockRepo(modelResponse = "Answer.")
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("Test")
         vm.sendMessage()
@@ -135,7 +137,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = """[SEARCH: "latest world news"]""",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("What's happening in the world?")
         vm.sendMessage()
@@ -151,7 +153,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = "Let me look that up.\n[SEARCH: \"current headlines\"]\nSearching...",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("Today's headlines?")
         vm.sendMessage()
@@ -164,7 +166,7 @@ class SearchProbeTest {
     @Test
     fun `normal response does not trigger search dialog`() {
         val repo = createMockRepo(modelResponse = "2 + 2 = 4.")
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("What is 2+2?")
         vm.sendMessage()
@@ -178,7 +180,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = "I don't have access to real-time information. My training data has a cutoff.",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("What are today's headlines?")
         vm.sendMessage()
@@ -191,7 +193,7 @@ class SearchProbeTest {
     @Test
     fun `non-refusal normal response does not trigger fallback`() {
         val repo = createMockRepo(modelResponse = "2 + 2 = 4.")
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("What is 2+2?")
         vm.sendMessage()
@@ -204,7 +206,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = "I cannot access real-time data or browse the internet.",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("Latest news")
         vm.sendMessage()
@@ -218,7 +220,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = """[SEARCH: "test query"]""",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("Search test")
         vm.sendMessage()
@@ -234,7 +236,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = """[SEARCH: "query"]""",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         // First message: triggers approval
         vm.setMessageText("First question")
@@ -268,7 +270,7 @@ class SearchProbeTest {
         val repo = createMockRepo(
             modelResponse = """[SEARCH: "query"]""",
         )
-        val vm = ChatViewModel(repo)
+        val vm = ChatViewModel(repo, createMockWhisperManager())
 
         vm.setMessageText("Test")
         vm.sendMessage()
@@ -281,6 +283,13 @@ class SearchProbeTest {
     }
 
     // --- Helper ---
+
+    private fun createMockWhisperManager(): WhisperManager {
+        return mockk {
+            every { modelState } returns MutableStateFlow(WhisperModelState.NotDownloaded)
+            every { isReady() } returns false
+        }
+    }
 
     private fun createMockRepo(
         modelId: String = "openai/gpt-oss-120b",

@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +35,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
@@ -84,6 +86,7 @@ import ai.privatemode.android.data.model.MessageRole
 import ai.privatemode.android.data.model.countWords
 import ai.privatemode.android.ui.theme.*
 import ai.privatemode.android.util.MarkdownRenderer
+import ai.privatemode.android.whisper.WhisperModelState
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -98,6 +101,10 @@ fun ChatScreen(
     val currentChat by viewModel.currentChat.collectAsState()
     val isGenerating by viewModel.isGenerating.collectAsState()
     val isUploading by viewModel.isUploading.collectAsState()
+    val isRecording by viewModel.isRecording.collectAsState()
+    val isTranscribing by viewModel.isTranscribing.collectAsState()
+    val audioAmplitudes by viewModel.audioAmplitudes.collectAsState()
+    val statusMessage by viewModel.statusMessage.collectAsState()
     val messageText by viewModel.messageText.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
     val extendedThinking by viewModel.extendedThinking.collectAsState()
@@ -106,6 +113,7 @@ fun ChatScreen(
     val attachedFiles by viewModel.attachedFiles.collectAsState()
     val filteredModels by viewModel.filteredModels.collectAsState()
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
+    val whisperModelState by viewModel.whisperModelState.collectAsState()
 
     val messages = currentChat?.messages ?: emptyList()
     val listState = rememberLazyListState()
@@ -184,6 +192,10 @@ fun ChatScreen(
             searchApproved = searchApproved,
             isGenerating = isGenerating,
             isUploading = isUploading,
+            isRecording = isRecording,
+            isTranscribing = isTranscribing,
+            audioAmplitudes = audioAmplitudes,
+            statusMessage = statusMessage,
             attachedFiles = attachedFiles,
             onSend = { viewModel.sendMessage() },
             onStop = { viewModel.stopGeneration() },
@@ -191,6 +203,8 @@ fun ChatScreen(
             onToggleThinking = { viewModel.toggleExtendedThinking() },
             onAttachFile = { context, uri -> viewModel.uploadFile(context, uri) },
             onAttachImage = { context, uri -> viewModel.attachImage(context, uri) },
+            onStartRecording = { context -> viewModel.startRecording(context) },
+            onStopRecording = { viewModel.stopRecording() },
             onRemoveFile = { viewModel.removeAttachedFile(it) },
             supportsFileUploads = viewModel.supportsFileUploads(),
             supportsImageInput = viewModel.supportsImageInput(),
@@ -200,6 +214,7 @@ fun ChatScreen(
             messageWordCount = countWords(messageText),
             attachedFilesWordCount = attachedFiles.sumOf { countWords(it.content) },
             filteredModels = filteredModels,
+            whisperModelState = whisperModelState,
         )
     }
 
@@ -394,6 +409,10 @@ private fun ChatInputBar(
     searchApproved: Boolean,
     isGenerating: Boolean,
     isUploading: Boolean,
+    isRecording: Boolean,
+    isTranscribing: Boolean,
+    audioAmplitudes: List<Float>,
+    statusMessage: String?,
     attachedFiles: List<ai.privatemode.android.data.model.AttachedFile>,
     onSend: () -> Unit,
     onStop: () -> Unit,
@@ -401,6 +420,8 @@ private fun ChatInputBar(
     onToggleThinking: () -> Unit,
     onAttachFile: (context: android.content.Context, uri: android.net.Uri) -> Unit,
     onAttachImage: (context: android.content.Context, uri: android.net.Uri) -> Unit,
+    onStartRecording: (context: android.content.Context) -> Unit,
+    onStopRecording: () -> Unit,
     onRemoveFile: (Int) -> Unit,
     supportsFileUploads: Boolean,
     supportsImageInput: Boolean,
@@ -410,7 +431,9 @@ private fun ChatInputBar(
     messageWordCount: Int,
     attachedFilesWordCount: Int,
     filteredModels: List<ai.privatemode.android.data.model.ApiModel>,
+    whisperModelState: WhisperModelState = WhisperModelState.NotDownloaded,
 ) {
+    val whisperModelReady = whisperModelState is WhisperModelState.Ready
     val context = LocalContext.current
     val totalWordCount = wordCount + messageWordCount + attachedFilesWordCount
     val usagePercentage = min((totalWordCount.toFloat() / maxWords * 100), 100f)
@@ -458,6 +481,12 @@ private fun ChatInputBar(
     }
 
     var showAttachMenu by remember { mutableStateOf(false) }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) onStartRecording(context)
+    }
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -517,22 +546,31 @@ private fun ChatInputBar(
                 }
             }
 
-            // Text input
-            OutlinedTextField(
-                value = messageText,
-                onValueChange = onMessageChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Type a message...") },
-                enabled = !isGenerating,
-                maxLines = 6,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = BorderLight,
-                    unfocusedBorderColor = BorderMedium,
-                    disabledBorderColor = BorderMedium.copy(alpha = 0.5f),
-                ),
-            )
+            // Text input or waveform
+            if (isRecording) {
+                WaveformIndicator(
+                    amplitudes = audioAmplitudes,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                )
+            } else {
+                OutlinedTextField(
+                    value = messageText,
+                    onValueChange = onMessageChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Type a message...") },
+                    enabled = !isGenerating,
+                    maxLines = 6,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = BorderLight,
+                        unfocusedBorderColor = BorderMedium,
+                        disabledBorderColor = BorderMedium.copy(alpha = 0.5f),
+                    ),
+                )
+            }
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -601,11 +639,47 @@ private fun ChatInputBar(
                         }
                     }
 
-                    if (isUploading) {
+                    // Mic button
+                    IconButton(
+                        onClick = {
+                            if (isRecording) {
+                                onStopRecording()
+                            } else {
+                                val hasPerm = androidx.core.content.ContextCompat.checkSelfPermission(
+                                    context, android.Manifest.permission.RECORD_AUDIO,
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (hasPerm) {
+                                    onStartRecording(context)
+                                } else {
+                                    micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+                                }
+                            }
+                        },
+                        enabled = !isGenerating && !isTranscribing && (isRecording || whisperModelReady),
+                        modifier = Modifier.size(36.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Mic,
+                            contentDescription = if (isRecording) "Stop recording" else "Voice input",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (isRecording) ErrorRed
+                                else if (whisperModelReady) TextSecondary
+                                else TextTertiary,
+                        )
+                    }
+
+                    val downloadingState = whisperModelState as? WhisperModelState.Downloading
+                    if (isUploading || isTranscribing || statusMessage != null || downloadingState != null) {
                         Text(
-                            text = "Uploading...",
+                            text = statusMessage
+                                ?: if (downloadingState != null) "STT ${(downloadingState.progress * 100).roundToInt()}%"
+                                else if (isTranscribing) "Transcribing..."
+                                else "Uploading...",
                             style = MaterialTheme.typography.bodySmall,
-                            color = TextTertiary,
+                            color = if (statusMessage != null) ErrorRed else TextTertiary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.widthIn(max = 180.dp),
                         )
                     }
 
@@ -701,6 +775,34 @@ private fun ChatInputBar(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WaveformIndicator(amplitudes: List<Float>, modifier: Modifier = Modifier) {
+    val barColor = Purple
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = BackgroundLight,
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            val barCount = 30
+            val gap = 3.dp.toPx()
+            val barWidth = ((size.width - gap * (barCount - 1)) / barCount).coerceAtLeast(2f)
+            val centerY = size.height / 2
+            for (i in 0 until barCount) {
+                val amp = amplitudes.getOrElse(i) { 0f }.coerceIn(0f, 1f)
+                val barHeight = (size.height * 0.15f + size.height * 0.85f * amp).coerceAtLeast(4f)
+                val x = i * (barWidth + gap)
+                drawRoundRect(
+                    color = barColor,
+                    topLeft = androidx.compose.ui.geometry.Offset(x, centerY - barHeight / 2),
+                    size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth / 2, barWidth / 2),
+                )
             }
         }
     }

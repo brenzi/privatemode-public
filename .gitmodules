@@ -1,0 +1,3 @@
+[submodule "android-app/whisper.cpp"]
+	path = android-app/whisper.cpp
+	url = https://github.com/ggerganov/whisper.cpp.git

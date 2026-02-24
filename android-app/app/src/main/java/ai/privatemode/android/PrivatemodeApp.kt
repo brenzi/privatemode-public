@@ -5,6 +5,7 @@ import ai.privatemode.android.data.local.ChatStorage
 import ai.privatemode.android.data.local.PreferencesManager
 import ai.privatemode.android.data.repository.ChatRepository
 import ai.privatemode.android.proxy.ProxyManager
+import ai.privatemode.android.whisper.WhisperManager
 
 class PrivatemodeApp : Application() {
 
@@ -16,6 +17,8 @@ class PrivatemodeApp : Application() {
         private set
     lateinit var repository: ChatRepository
         private set
+    lateinit var whisperManager: WhisperManager
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -24,5 +27,6 @@ class PrivatemodeApp : Application() {
         chatStorage = ChatStorage(this)
         proxyManager = ProxyManager(this)
         repository = ChatRepository(chatStorage, preferences, proxyManager)
+        whisperManager = WhisperManager(this)
     }
 }

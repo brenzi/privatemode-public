@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -30,10 +31,13 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -52,6 +56,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import ai.privatemode.android.ui.theme.*
+import ai.privatemode.android.whisper.WhisperModelState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +66,8 @@ fun SettingsScreen(
 ) {
     val apiKey by viewModel.apiKey.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
+    val sttEnabled by viewModel.sttEnabled.collectAsState()
+    val whisperModelState by viewModel.whisperModelState.collectAsState()
 
     var editApiKey by remember(apiKey) { mutableStateOf(apiKey ?: "") }
     var showApiKey by remember { mutableStateOf(false) }
@@ -211,6 +218,99 @@ fun SettingsScreen(
                         color = TextPrimary,
                         fontWeight = FontWeight.W500,
                     )
+                }
+            }
+
+            // Speech to text
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = SurfaceWhite),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Speech to text",
+                            style = MaterialTheme.typography.headlineMedium,
+                        )
+                        Switch(
+                            checked = sttEnabled,
+                            onCheckedChange = { viewModel.setSttEnabled(it) },
+                            colors = SwitchDefaults.colors(checkedTrackColor = Purple),
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "On-device transcription using Whisper (~105 MB model)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                    )
+
+                    if (sttEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        when (val state = whisperModelState) {
+                            is WhisperModelState.NotDownloaded -> {
+                                Button(
+                                    onClick = { viewModel.downloadWhisperModel() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Purple),
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Text("Download model")
+                                }
+                            }
+                            is WhisperModelState.Downloading -> {
+                                LinearProgressIndicator(
+                                    progress = { state.progress },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = Purple,
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Downloading... ${(state.progress * 100).toInt()}%",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = TextTertiary,
+                                )
+                            }
+                            is WhisperModelState.Ready -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.CheckCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = SecurityGreen,
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "Model ready",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SecurityGreen,
+                                    )
+                                }
+                            }
+                            is WhisperModelState.Error -> {
+                                Text(
+                                    text = state.message,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ErrorRed,
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedButton(
+                                    onClick = { viewModel.downloadWhisperModel() },
+                                    shape = RoundedCornerShape(8.dp),
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

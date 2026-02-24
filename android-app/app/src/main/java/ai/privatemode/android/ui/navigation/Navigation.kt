@@ -19,6 +19,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import ai.privatemode.android.data.repository.ChatRepository
 import ai.privatemode.android.proxy.ProxyManager
+import ai.privatemode.android.whisper.WhisperManager
 import ai.privatemode.android.ui.chat.ChatScreen
 import ai.privatemode.android.ui.chat.ChatViewModel
 import ai.privatemode.android.ui.components.DrawerContent
@@ -37,13 +38,14 @@ sealed class Screen(val route: String) {
 fun MainNavigation(
     repository: ChatRepository,
     proxyManager: ProxyManager,
+    whisperManager: WhisperManager,
 ) {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
 
-    val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.Factory(repository))
-    val settingsViewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory(repository))
+    val chatViewModel: ChatViewModel = viewModel(factory = ChatViewModel.Factory(repository, whisperManager))
+    val settingsViewModel: SettingsViewModel = viewModel(factory = SettingsViewModel.Factory(repository, whisperManager))
 
     val chats by chatViewModel.chats.collectAsState()
     val currentChatId by chatViewModel.currentChatId.collectAsState()

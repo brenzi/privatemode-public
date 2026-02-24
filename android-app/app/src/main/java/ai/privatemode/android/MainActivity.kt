@@ -37,6 +37,9 @@ import ai.privatemode.android.ui.theme.PrivatemodeTheme
 import ai.privatemode.android.ui.theme.Purple
 import ai.privatemode.android.ui.theme.TextSecondary
 import ai.privatemode.android.ui.theme.TextTertiary
+import ai.privatemode.android.whisper.WhisperModelState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -64,6 +67,9 @@ private fun AppContent(app: PrivatemodeApp) {
     var apiKeyChecked by remember { mutableStateOf(false) }
 
     val proxyState by app.proxyManager.state.collectAsState()
+    val sttEnabled by app.preferences.sttEnabled.collectAsState(initial = false)
+    val sttPromptShown by app.preferences.sttPromptShown.collectAsState(initial = true)
+    var showSttDialog by remember { mutableStateOf(false) }
 
     // Initialize storage and proxy on first composition
     LaunchedEffect(Unit) {
@@ -78,6 +84,43 @@ private fun AppContent(app: PrivatemodeApp) {
             app.repository.loadModels()
             initialized = true
         }
+    }
+
+    // Show STT prompt after app is ready
+    LaunchedEffect(initialized, sttPromptShown) {
+        if (initialized && !sttPromptShown) {
+            showSttDialog = true
+        }
+    }
+
+    // Initialize whisper if STT enabled
+    LaunchedEffect(sttEnabled, initialized) {
+        if (sttEnabled && initialized) {
+            app.whisperManager.initialize()
+            if (app.whisperManager.modelState.value is WhisperModelState.NotDownloaded) {
+                app.whisperManager.downloadModel()
+            }
+        }
+    }
+
+    if (showSttDialog) {
+        SttEnableDialog(
+            onEnable = {
+                showSttDialog = false
+                scope.launch {
+                    app.preferences.setSttEnabled(true)
+                    app.preferences.setSttPromptShown(true)
+                    app.whisperManager.initialize()
+                    app.whisperManager.downloadModel()
+                }
+            },
+            onDismiss = {
+                showSttDialog = false
+                scope.launch {
+                    app.preferences.setSttPromptShown(true)
+                }
+            },
+        )
     }
 
     when {
@@ -116,6 +159,7 @@ private fun AppContent(app: PrivatemodeApp) {
             MainNavigation(
                 repository = app.repository,
                 proxyManager = app.proxyManager,
+                whisperManager = app.whisperManager,
             )
         }
     }
@@ -193,4 +237,27 @@ private fun ErrorScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SttEnableDialog(
+    onEnable: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Speech to text") },
+        text = {
+            Text(
+                "Enable on-device speech-to-text? This downloads a ~105 MB model. " +
+                    "Transcription runs entirely on your device.",
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onEnable) { Text("Enable") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Not now") }
+        },
+    )
 }

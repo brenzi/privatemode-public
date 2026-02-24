@@ -23,6 +23,8 @@ class PreferencesManager(private val context: Context) {
         private val SELECTED_MODEL = stringPreferencesKey("selected_model")
         private val EXTENDED_THINKING = booleanPreferencesKey("extended_thinking")
         private val WEB_SEARCH = booleanPreferencesKey("web_search")
+        private val STT_ENABLED = booleanPreferencesKey("stt_enabled")
+        private val STT_PROMPT_SHOWN = booleanPreferencesKey("stt_prompt_shown")
 
         const val DEFAULT_SERVER_URL = "https://api.privatemode.ai"
     }
@@ -89,6 +91,26 @@ class PreferencesManager(private val context: Context) {
     suspend fun setWebSearch(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[WEB_SEARCH] = enabled
+        }
+    }
+
+    val sttEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[STT_ENABLED] ?: false
+    }
+
+    val sttPromptShown: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[STT_PROMPT_SHOWN] ?: false
+    }
+
+    suspend fun setSttEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[STT_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setSttPromptShown(shown: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[STT_PROMPT_SHOWN] = shown
         }
     }
 }

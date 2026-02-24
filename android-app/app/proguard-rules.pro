@@ -18,3 +18,6 @@
 # Markwon
 -keep class io.noties.markwon.** { *; }
 -keep class io.noties.prism4j.** { *; }
+
+# Whisper JNI
+-keep class ai.privatemode.android.whisper.WhisperNative { native <methods>; }

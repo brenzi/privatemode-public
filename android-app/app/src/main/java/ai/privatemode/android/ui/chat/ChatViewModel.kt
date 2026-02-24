@@ -19,7 +19,12 @@ import ai.privatemode.android.data.model.countWords
 import ai.privatemode.android.data.remote.ApiException
 import ai.privatemode.android.data.remote.StartpageSearchClient
 import ai.privatemode.android.data.repository.ChatRepository
+import ai.privatemode.android.whisper.AudioRecorder
+import ai.privatemode.android.whisper.WhisperManager
+import ai.privatemode.android.whisper.WhisperModelState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +34,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -50,6 +56,7 @@ data class PendingSearchApproval(
 
 class ChatViewModel(
     private val repository: ChatRepository,
+    private val whisperManager: WhisperManager,
 ) : ViewModel() {
     private val TAG = "ChatViewModel"
 
@@ -75,6 +82,23 @@ class ChatViewModel(
 
     private val _isUploading = MutableStateFlow(false)
     val isUploading: StateFlow<Boolean> = _isUploading.asStateFlow()
+
+    private val _isRecording = MutableStateFlow(false)
+    val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
+
+    private val _isTranscribing = MutableStateFlow(false)
+    val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
+
+    private val _audioAmplitudes = MutableStateFlow<List<Float>>(emptyList())
+    val audioAmplitudes: StateFlow<List<Float>> = _audioAmplitudes.asStateFlow()
+
+    private val _statusMessage = MutableStateFlow<String?>(null)
+    val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    val whisperModelState: StateFlow<WhisperModelState> = whisperManager.modelState
+
+    private var audioRecorder: AudioRecorder? = null
+    private var recordingJob: Job? = null
 
     private val _attachedFiles = MutableStateFlow<List<AttachedFile>>(emptyList())
     val attachedFiles: StateFlow<List<AttachedFile>> = _attachedFiles.asStateFlow()
@@ -255,6 +279,63 @@ If you can answer from your existing knowledge, answer normally without using th
                 throw e
             } finally {
                 _isUploading.value = false
+            }
+        }
+    }
+
+    fun startRecording(context: Context) {
+        if (_isRecording.value || !whisperManager.isReady()) return
+        val recorder = AudioRecorder()
+        audioRecorder = recorder
+        _isRecording.value = true
+        _audioAmplitudes.value = emptyList()
+
+        // Collect amplitudes for waveform
+        viewModelScope.launch {
+            recorder.amplitudes.collect { amps ->
+                _audioAmplitudes.value = amps
+            }
+        }
+
+        // Start recording (blocking) on IO
+        recordingJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                recorder.startRecording()
+            } catch (e: Exception) {
+                Log.e(TAG, "Recording failed", e)
+            }
+        }
+    }
+
+    fun stopRecording() {
+        if (!_isRecording.value) return
+        val recorder = audioRecorder ?: return
+        recorder.stopRecording()
+        _isRecording.value = false
+        recordingJob = null
+        audioRecorder = null
+
+        viewModelScope.launch {
+            _isTranscribing.value = true
+            try {
+                val samples = recorder.getSamples()
+                if (samples.isEmpty()) return@launch
+                val text = withContext(Dispatchers.Default) {
+                    whisperManager.transcribe(samples)
+                }
+                if (text.isNotBlank()) {
+                    val current = _messageText.value
+                    _messageText.value = if (current.isBlank()) text.trim() else "$current ${text.trim()}"
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Transcription failed", e)
+                _statusMessage.value = "Transcription failed: ${e.message}"
+                viewModelScope.launch {
+                    delay(4000)
+                    _statusMessage.compareAndSet("Transcription failed: ${e.message}", null)
+                }
+            } finally {
+                _isTranscribing.value = false
             }
         }
     }
@@ -634,10 +715,13 @@ If you can answer from your existing knowledge, answer normally without using th
         return name
     }
 
-    class Factory(private val repository: ChatRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: ChatRepository,
+        private val whisperManager: WhisperManager,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ChatViewModel(repository) as T
+            return ChatViewModel(repository, whisperManager) as T
         }
     }
 }
