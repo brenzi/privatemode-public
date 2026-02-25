@@ -24,6 +24,15 @@ static bool check_abort(void *user_data) {
     return atomic_load(&abort_flag) != 0;
 }
 
+/* Progress (0-100) — updated by whisper's progress callback, polled from Kotlin. */
+static atomic_int progress_pct = 0;
+
+static void on_progress(struct whisper_context *wctx, struct whisper_state *wstate,
+                         int progress, void *user_data) {
+    (void)wctx; (void)wstate; (void)user_data;
+    atomic_store(&progress_pct, progress);
+}
+
 JNIEXPORT jint JNICALL
 Java_ai_privatemode_android_whisper_WhisperNative_nativeInit(
     JNIEnv *env, jobject thiz, jstring modelPath) {
@@ -54,8 +63,9 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
         return (*env)->NewStringUTF(env, "");
     }
 
-    /* Reset abort flag at the start of each transcription. */
+    /* Reset abort flag and progress at the start of each transcription. */
     atomic_store(&abort_flag, 0);
+    atomic_store(&progress_pct, 0);
 
     jsize n_samples = (*env)->GetArrayLength(env, samples);
     jfloat *data = (*env)->GetFloatArrayElements(env, samples, NULL);
@@ -75,6 +85,8 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
     params.print_timestamps = false;
     params.abort_callback = check_abort;
     params.abort_callback_user_data = NULL;
+    params.progress_callback = on_progress;
+    params.progress_callback_user_data = NULL;
 
     int ret = whisper_full(ctx, params, data, n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, data, JNI_ABORT);
@@ -113,6 +125,12 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
     jstring result = (*env)->NewStringUTF(env, buf);
     free(buf);
     return result;
+}
+
+JNIEXPORT jint JNICALL
+Java_ai_privatemode_android_whisper_WhisperNative_nativeGetProgress(
+    JNIEnv *env, jobject thiz) {
+    return (jint)atomic_load(&progress_pct);
 }
 
 JNIEXPORT void JNICALL

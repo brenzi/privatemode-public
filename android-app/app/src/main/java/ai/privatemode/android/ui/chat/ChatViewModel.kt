@@ -22,6 +22,7 @@ import ai.privatemode.android.data.repository.ChatRepository
 import ai.privatemode.android.whisper.AudioRecorder
 import ai.privatemode.android.whisper.WhisperManager
 import ai.privatemode.android.whisper.WhisperModelState
+import ai.privatemode.android.whisper.WhisperNative
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -89,6 +90,9 @@ class ChatViewModel(
 
     private val _isTranscribing = MutableStateFlow(false)
     val isTranscribing: StateFlow<Boolean> = _isTranscribing.asStateFlow()
+
+    private val _transcriptionProgress = MutableStateFlow(0)
+    val transcriptionProgress: StateFlow<Int> = _transcriptionProgress.asStateFlow()
 
     private val _audioAmplitudes = MutableStateFlow<List<Float>>(emptyList())
     val audioAmplitudes: StateFlow<List<Float>> = _audioAmplitudes.asStateFlow()
@@ -322,11 +326,22 @@ If you can answer from your existing knowledge, answer normally without using th
 
         viewModelScope.launch {
             _isTranscribing.value = true
+            _transcriptionProgress.value = 0
+            var progressJob: Job? = null
             try {
                 // Wait for the recording IO thread to fully stop before reading samples
                 job?.join()
                 val samples = recorder.getSamples()
                 if (samples.isEmpty()) return@launch
+
+                // Poll native progress while transcription runs
+                progressJob = viewModelScope.launch {
+                    while (true) {
+                        delay(250)
+                        _transcriptionProgress.value = WhisperNative.nativeGetProgress()
+                    }
+                }
+
                 val text = withContext(Dispatchers.Default) {
                     withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
                         whisperManager.transcribe(samples)
@@ -352,6 +367,8 @@ If you can answer from your existing knowledge, answer normally without using th
                     _statusMessage.compareAndSet("Transcription failed: ${e.message}", null)
                 }
             } finally {
+                progressJob?.cancel()
+                _transcriptionProgress.value = 0
                 _isTranscribing.value = false
             }
         }

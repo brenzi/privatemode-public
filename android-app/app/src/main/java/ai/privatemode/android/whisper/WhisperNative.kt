@@ -24,6 +24,8 @@ object WhisperNative {
 
     external fun nativeInit(modelPath: String): Int
     external fun nativeTranscribe(samples: FloatArray, nThreads: Int): String
+    /** Returns transcription progress 0-100, updated by whisper's progress callback. */
+    external fun nativeGetProgress(): Int
     external fun nativeAbort()
     external fun nativeFree()
     external fun nativeIsLoaded(): Boolean

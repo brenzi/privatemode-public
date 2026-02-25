@@ -131,14 +131,16 @@ class WhisperManager(private val context: Context) {
     }
 
     fun transcribe(samples: FloatArray): String {
-        val cores = Runtime.getRuntime().availableProcessors()
-        // ggml's thread barrier deadlocks on x86_64 emulators; use 1 thread there.
-        // Real ARM devices get up to 4 threads.
+        // On ARM big.LITTLE SoCs (Pixel 6 Tensor G1, etc.) whisper.cpp creates
+        // a disposable ggml threadpool for every graph compute.  With >2 threads,
+        // the OS scheduler scatters them across big/LITTLE core clusters causing
+        // cross-cluster spin-barrier stalls.  2 threads keeps them on one cluster.
+        // On x86_64 emulators ggml's barrier deadlocks, so use 1 thread.
         val isEmulator = android.os.Build.HARDWARE.contains("ranchu") ||
             android.os.Build.HARDWARE.contains("goldfish") ||
             android.os.Build.FINGERPRINT.contains("generic")
-        val threads = if (isEmulator) 1 else cores.coerceIn(2, 4)
-        Log.i(TAG, "transcribe: ${samples.size} samples (${samples.size / 16000f}s), $threads threads ($cores cores, emulator=$isEmulator)")
+        val threads = if (isEmulator) 1 else 2
+        Log.i(TAG, "transcribe: ${samples.size} samples (${samples.size / 16000f}s), $threads threads (emulator=$isEmulator)")
         val start = System.currentTimeMillis()
         val result = WhisperNative.nativeTranscribe(samples, threads)
         Log.i(TAG, "transcribe done in ${System.currentTimeMillis() - start}ms: \"${result.take(100)}\"")

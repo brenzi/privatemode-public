@@ -114,6 +114,7 @@ fun ChatScreen(
     val filteredModels by viewModel.filteredModels.collectAsState()
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
     val whisperModelState by viewModel.whisperModelState.collectAsState()
+    val transcriptionProgress by viewModel.transcriptionProgress.collectAsState()
 
     val messages = currentChat?.messages ?: emptyList()
     val listState = rememberLazyListState()
@@ -215,6 +216,7 @@ fun ChatScreen(
             attachedFilesWordCount = attachedFiles.sumOf { countWords(it.content) },
             filteredModels = filteredModels,
             whisperModelState = whisperModelState,
+            transcriptionProgress = transcriptionProgress,
         )
     }
 
@@ -432,6 +434,7 @@ private fun ChatInputBar(
     attachedFilesWordCount: Int,
     filteredModels: List<ai.privatemode.android.data.model.ApiModel>,
     whisperModelState: WhisperModelState = WhisperModelState.NotDownloaded,
+    transcriptionProgress: Int = 0,
 ) {
     val whisperModelReady = whisperModelState is WhisperModelState.Ready
     val context = LocalContext.current
@@ -673,7 +676,7 @@ private fun ChatInputBar(
                         Text(
                             text = statusMessage
                                 ?: if (downloadingState != null) "STT ${(downloadingState.progress * 100).roundToInt()}%"
-                                else if (isTranscribing) "Transcribing..."
+                                else if (isTranscribing) "Transcribing${if (transcriptionProgress > 0) " ${transcriptionProgress}%" else "..."}"
                                 else "Uploading...",
                             style = MaterialTheme.typography.bodySmall,
                             color = if (statusMessage != null) ErrorRed else TextTertiary,
