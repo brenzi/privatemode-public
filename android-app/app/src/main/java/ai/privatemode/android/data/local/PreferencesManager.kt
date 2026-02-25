@@ -25,6 +25,7 @@ class PreferencesManager(private val context: Context) {
         private val WEB_SEARCH = booleanPreferencesKey("web_search")
         private val STT_ENABLED = booleanPreferencesKey("stt_enabled")
         private val STT_PROMPT_SHOWN = booleanPreferencesKey("stt_prompt_shown")
+        private val STT_MODEL_SIZE = stringPreferencesKey("stt_model_size")
 
         const val DEFAULT_SERVER_URL = "https://api.privatemode.ai"
     }
@@ -111,6 +112,16 @@ class PreferencesManager(private val context: Context) {
     suspend fun setSttPromptShown(shown: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[STT_PROMPT_SHOWN] = shown
+        }
+    }
+
+    val sttModelSize: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[STT_MODEL_SIZE] ?: "SMALL"
+    }
+
+    suspend fun setSttModelSize(size: String) {
+        context.dataStore.edit { preferences ->
+            preferences[STT_MODEL_SIZE] = size
         }
     }
 }

@@ -56,6 +56,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import ai.privatemode.android.ui.theme.*
+import ai.privatemode.android.whisper.WhisperModelSize
 import ai.privatemode.android.whisper.WhisperModelState
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -67,6 +68,7 @@ fun SettingsScreen(
     val apiKey by viewModel.apiKey.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
     val sttEnabled by viewModel.sttEnabled.collectAsState()
+    val sttModelSize by viewModel.sttModelSize.collectAsState()
     val whisperModelState by viewModel.whisperModelState.collectAsState()
 
     var editApiKey by remember(apiKey) { mutableStateOf(apiKey ?: "") }
@@ -248,12 +250,41 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "On-device transcription using Whisper (~105 MB model)",
+                        text = "On-device transcription using Whisper",
                         style = MaterialTheme.typography.bodyMedium,
                         color = TextSecondary,
                     )
 
                     if (sttEnabled) {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "Model size",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.W500,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            WhisperModelSize.entries.forEach { size ->
+                                val selected = size == sttModelSize
+                                OutlinedButton(
+                                    onClick = { if (!selected) viewModel.setSttModelSize(size) },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (selected) Purple else SurfaceWhite,
+                                        contentColor = if (selected) SurfaceWhite else TextPrimary,
+                                    ),
+                                    border = ButtonDefaults.outlinedButtonBorder(true).copy(
+                                        brush = androidx.compose.ui.graphics.SolidColor(
+                                            if (selected) Purple else BorderInput
+                                        ),
+                                    ),
+                                ) {
+                                    Text("${size.label} (~${size.sizeMb} MB)")
+                                }
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(12.dp))
 
                         when (val state = whisperModelState) {

@@ -5,9 +5,11 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import ai.privatemode.android.data.repository.ChatRepository
 import ai.privatemode.android.whisper.WhisperManager
+import ai.privatemode.android.whisper.WhisperModelSize
 import ai.privatemode.android.whisper.WhisperModelState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -26,6 +28,10 @@ class SettingsViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val whisperModelState: StateFlow<WhisperModelState> = whisperManager.modelState
+
+    val sttModelSize: StateFlow<WhisperModelSize> = repository.preferences.sttModelSize
+        .map { WhisperModelSize.fromString(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), whisperManager.modelSize)
 
     fun updateApiKey(key: String) {
         viewModelScope.launch {
@@ -55,6 +61,17 @@ class SettingsViewModel(
                 }
             } else {
                 whisperManager.deleteModel()
+            }
+        }
+    }
+
+    fun setSttModelSize(size: WhisperModelSize) {
+        viewModelScope.launch {
+            repository.preferences.setSttModelSize(size.name)
+            whisperManager.setModelSize(size)
+            whisperManager.initialize()
+            if (whisperManager.modelState.value is WhisperModelState.NotDownloaded) {
+                whisperManager.downloadModel()
             }
         }
     }

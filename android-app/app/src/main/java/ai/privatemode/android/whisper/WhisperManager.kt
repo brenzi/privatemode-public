@@ -20,12 +20,38 @@ sealed class WhisperModelState {
     data class Error(val message: String) : WhisperModelState()
 }
 
+enum class WhisperModelSize(
+    val label: String,
+    val fileName: String,
+    val downloadUrl: String,
+    val sizeMb: Int,
+) {
+    TINY(
+        label = "Tiny",
+        fileName = "ggml-tiny-q5_1.bin",
+        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin",
+        sizeMb = 31,
+    ),
+    SMALL(
+        label = "Small",
+        fileName = "ggml-small-q5_1.bin",
+        downloadUrl = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin",
+        sizeMb = 105,
+    );
+
+    companion object {
+        fun fromString(value: String): WhisperModelSize =
+            entries.find { it.name == value } ?: SMALL
+    }
+}
+
 class WhisperManager(private val context: Context) {
 
     private val TAG = "WhisperManager"
-    private val MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
     private val MODEL_DIR = "whisper"
-    private val MODEL_FILE = "ggml-small-q5_1.bin"
+
+    var modelSize: WhisperModelSize = WhisperModelSize.SMALL
+        private set
 
     private val _modelState = MutableStateFlow<WhisperModelState>(WhisperModelState.NotDownloaded)
     val modelState: StateFlow<WhisperModelState> = _modelState.asStateFlow()
@@ -37,7 +63,15 @@ class WhisperManager(private val context: Context) {
         .followSslRedirects(true)
         .build()
 
-    private fun modelFile(): File = File(File(context.filesDir, MODEL_DIR), MODEL_FILE)
+    private fun modelDir(): File = File(context.filesDir, MODEL_DIR)
+    private fun modelFile(): File = File(modelDir(), modelSize.fileName)
+
+    fun setModelSize(size: WhisperModelSize) {
+        if (size == modelSize && _modelState.value is WhisperModelState.Ready) return
+        if (WhisperNative.isLoaded()) WhisperNative.nativeFree()
+        modelSize = size
+        _modelState.value = if (modelFile().exists()) WhisperModelState.Ready else WhisperModelState.NotDownloaded
+    }
 
     suspend fun initialize() = withContext(Dispatchers.IO) {
         if (!WhisperNative.loadLibrary()) {
@@ -64,12 +98,12 @@ class WhisperManager(private val context: Context) {
         try {
             _modelState.value = WhisperModelState.Downloading(0f)
 
-            val dir = File(context.filesDir, MODEL_DIR)
+            val dir = modelDir()
             if (!dir.exists()) dir.mkdirs()
             val file = modelFile()
-            val tmpFile = File(dir, "$MODEL_FILE.tmp")
+            val tmpFile = File(dir, "${modelSize.fileName}.tmp")
 
-            val request = Request.Builder().url(MODEL_URL).build()
+            val request = Request.Builder().url(modelSize.downloadUrl).build()
             val response = downloadClient.newCall(request).execute()
 
             if (!response.isSuccessful) {
@@ -119,8 +153,12 @@ class WhisperManager(private val context: Context) {
     }
 
     fun deleteModel() {
-        WhisperNative.nativeFree()
-        modelFile().delete()
+        if (WhisperNative.isLoaded()) WhisperNative.nativeFree()
+        // Delete all model variants
+        val dir = modelDir()
+        WhisperModelSize.entries.forEach { size ->
+            File(dir, size.fileName).delete()
+        }
         _modelState.value = WhisperModelState.NotDownloaded
     }
 

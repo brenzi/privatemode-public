@@ -37,9 +37,11 @@ import ai.privatemode.android.ui.theme.PrivatemodeTheme
 import ai.privatemode.android.ui.theme.Purple
 import ai.privatemode.android.ui.theme.TextSecondary
 import ai.privatemode.android.ui.theme.TextTertiary
+import ai.privatemode.android.whisper.WhisperModelSize
 import ai.privatemode.android.whisper.WhisperModelState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -96,6 +98,8 @@ private fun AppContent(app: PrivatemodeApp) {
     // Initialize whisper if STT enabled
     LaunchedEffect(sttEnabled, initialized) {
         if (sttEnabled && initialized) {
+            val sizeName = app.preferences.sttModelSize.first()
+            app.whisperManager.setModelSize(WhisperModelSize.fromString(sizeName))
             app.whisperManager.initialize()
             if (app.whisperManager.modelState.value is WhisperModelState.NotDownloaded) {
                 app.whisperManager.downloadModel()
@@ -249,8 +253,9 @@ private fun SttEnableDialog(
         title = { Text("Speech to text") },
         text = {
             Text(
-                "Enable on-device speech-to-text? This downloads a ~105 MB model. " +
-                    "Transcription runs entirely on your device.",
+                "Enable on-device speech-to-text? This downloads a model (~31–105 MB). " +
+                    "Transcription runs entirely on your device. " +
+                    "You can change the model size in Settings.",
             )
         },
         confirmButton = {

@@ -13,6 +13,19 @@ find_library(LOG_LIB log)
 # Android 16KB page alignment
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-z,max-page-size=16384")
 
+# Force -O3 for ALL build types including Debug.
+# ggml matrix ops are ~200x slower without optimization — unusable for on-device inference.
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -O3")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+set(CMAKE_C_FLAGS_DEBUG   "-g" CACHE STRING "" FORCE)
+set(CMAKE_CXX_FLAGS_DEBUG "-g" CACHE STRING "" FORCE)
+
+# Tell ggml-cpu which ARM ISA to target (GGML_NATIVE is OFF when cross-compiling).
+# Without this, ggml-cpu falls back to baseline armv8.0 with no fp16 vector ops.
+if (${ANDROID_ABI} STREQUAL "arm64-v8a")
+    set(GGML_CPU_ARM_ARCH "armv8.2-a+fp16" CACHE STRING "" FORCE)
+endif()
+
 # Build ggml as STATIC libs — avoids shared-library backend registration issues on Android
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
@@ -40,15 +53,9 @@ target_include_directories(whisper_jni PRIVATE
     ${WHISPER_CPP_DIR}/ggml/src/ggml-cpu
 )
 
-if (NOT ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
-    target_compile_options(whisper_jni PRIVATE -O3)
-    target_compile_options(ggml PRIVATE -O3)
-endif()
-
-# ARM fp16 optimization for arm64
+# ARM fp16 optimization for whisper.cpp source (ggml-cpu gets it via GGML_CPU_ARM_ARCH above)
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
     target_compile_options(whisper_jni PRIVATE -march=armv8.2-a+fp16)
-    target_compile_options(ggml PRIVATE -march=armv8.2-a+fp16)
 endif()
 
 target_link_libraries(whisper_jni ${LOG_LIB} android ggml)
