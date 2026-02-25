@@ -214,7 +214,7 @@ class WhisperManager(private val context: Context) {
         WhisperNative.nativeAbort()
     }
 
-    fun transcribe(samples: FloatArray): String {
+    fun transcribe(samples: FloatArray, language: String = "auto"): String {
         // On ARM big.LITTLE SoCs (Pixel 6 Tensor G1, etc.) whisper.cpp creates
         // a disposable ggml threadpool for every graph compute.  With >2 threads,
         // the OS scheduler scatters them across big/LITTLE core clusters causing
@@ -224,9 +224,9 @@ class WhisperManager(private val context: Context) {
             android.os.Build.HARDWARE.contains("goldfish") ||
             android.os.Build.FINGERPRINT.contains("generic")
         val threads = if (isEmulator) 1 else 4
-        Log.i(TAG, "transcribe: ${samples.size} samples (${samples.size / 16000f}s), $threads threads (emulator=$isEmulator)")
+        Log.i(TAG, "transcribe: ${samples.size} samples (${samples.size / 16000f}s), $threads threads, lang=$language (emulator=$isEmulator)")
         val start = System.currentTimeMillis()
-        val result = WhisperNative.nativeTranscribe(samples, threads)
+        val result = WhisperNative.nativeTranscribe(samples, threads, language)
         Log.i(TAG, "transcribe done in ${System.currentTimeMillis() - start}ms: \"${result.take(100)}\"")
         return result
     }

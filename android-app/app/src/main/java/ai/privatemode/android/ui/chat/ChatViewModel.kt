@@ -106,6 +106,13 @@ class ChatViewModel(
     private val _liveTranscription = MutableStateFlow("")
     val liveTranscription: StateFlow<String> = _liveTranscription.asStateFlow()
 
+    private val _whisperLanguage = MutableStateFlow("auto")
+    val whisperLanguage: StateFlow<String> = _whisperLanguage.asStateFlow()
+
+    fun setWhisperLanguage(language: String) {
+        _whisperLanguage.value = language
+    }
+
     private var audioRecorder: AudioRecorder? = null
     private var recordingJob: Job? = null
     private var pipelineJob: Job? = null
@@ -369,7 +376,7 @@ If you can answer from your existing knowledge, answer normally without using th
                 if (tailSamples.size >= MIN_TAIL_SAMPLES) {
                     val text = withContext(Dispatchers.Default) {
                         withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
-                            whisperManager.transcribe(tailSamples)
+                            whisperManager.transcribe(tailSamples, _whisperLanguage.value)
                         }
                     }
                     if (text.isNotBlank()) {
@@ -440,7 +447,7 @@ If you can answer from your existing knowledge, answer normally without using th
             val samples = recorder.getSamplesRange(pipelineTranscribedUpTo, chunkEnd)
 
             try {
-                val text = whisperManager.transcribe(samples)
+                val text = whisperManager.transcribe(samples, _whisperLanguage.value)
                 if (text.isNotBlank()) {
                     if (pipelineCommitted.isEmpty()) {
                         pipelineCommitted.append(text.trim())

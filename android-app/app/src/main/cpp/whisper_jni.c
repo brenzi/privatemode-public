@@ -79,7 +79,7 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeInit(
 
 JNIEXPORT jstring JNICALL
 Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
-    JNIEnv *env, jobject thiz, jfloatArray samples, jint n_threads) {
+    JNIEnv *env, jobject thiz, jfloatArray samples, jint n_threads, jstring language) {
 
     if (ctx == NULL) {
         __android_log_print(ANDROID_LOG_ERROR, TAG, "transcribe called but context is NULL");
@@ -92,14 +92,15 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
 
     jsize n_samples = (*env)->GetArrayLength(env, samples);
     jfloat *data = (*env)->GetFloatArrayElements(env, samples, NULL);
+    const char *lang = (*env)->GetStringUTFChars(env, language, NULL);
 
     int threads = n_threads > 0 ? n_threads : 2;
     __android_log_print(ANDROID_LOG_INFO, TAG,
-        "whisper_full: %d samples (%.1fs audio), %d threads",
-        n_samples, (float)n_samples / 16000.0f, threads);
+        "whisper_full: %d samples (%.1fs audio), %d threads, lang=%s",
+        n_samples, (float)n_samples / 16000.0f, threads, lang);
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.language = "auto";
+    params.language = lang;
     params.n_threads = threads;
     params.greedy.best_of = 1;
     params.single_segment = true;
@@ -124,6 +125,7 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
 
     int ret = whisper_full(ctx, params, data, n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, data, JNI_ABORT);
+    (*env)->ReleaseStringUTFChars(env, language, lang);
 
     if (atomic_load(&abort_flag) != 0) {
         __android_log_print(ANDROID_LOG_INFO, TAG, "whisper_full aborted by caller");

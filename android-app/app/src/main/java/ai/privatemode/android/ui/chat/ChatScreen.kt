@@ -121,6 +121,7 @@ fun ChatScreen(
     val whisperModelState by viewModel.whisperModelState.collectAsState()
     val transcriptionProgress by viewModel.transcriptionProgress.collectAsState()
     val liveTranscription by viewModel.liveTranscription.collectAsState()
+    val whisperLanguage by viewModel.whisperLanguage.collectAsState()
 
     // Keep screen on while recording or transcribing
     if (isRecording || isTranscribing) {
@@ -235,6 +236,8 @@ fun ChatScreen(
             whisperModelState = whisperModelState,
             transcriptionProgress = transcriptionProgress,
             liveTranscription = liveTranscription,
+            whisperLanguage = whisperLanguage,
+            onWhisperLanguageChange = { viewModel.setWhisperLanguage(it) },
         )
     }
 
@@ -454,7 +457,10 @@ private fun ChatInputBar(
     whisperModelState: WhisperModelState = WhisperModelState.NotDownloaded,
     transcriptionProgress: Int = 0,
     liveTranscription: String = "",
+    whisperLanguage: String = "auto",
+    onWhisperLanguageChange: (String) -> Unit = {},
 ) {
+    val languageOptions = listOf("auto", "en", "de")
     val whisperModelReady = whisperModelState is WhisperModelState.Ready
     val context = LocalContext.current
     val totalWordCount = wordCount + messageWordCount + attachedFilesWordCount
@@ -707,6 +713,28 @@ private fun ChatInputBar(
                                 else if (whisperModelReady) TextSecondary
                                 else TextTertiary,
                         )
+                    }
+
+                    // Language selector — cycles auto → en → de
+                    if (whisperModelReady && !isGenerating) {
+                        Surface(
+                            modifier = Modifier
+                                .clickable(enabled = !isRecording && !isTranscribing) {
+                                    val idx = languageOptions.indexOf(whisperLanguage)
+                                    val next = languageOptions[(idx + 1) % languageOptions.size]
+                                    onWhisperLanguageChange(next)
+                                },
+                            shape = RoundedCornerShape(6.dp),
+                            color = BackgroundLight,
+                        ) {
+                            Text(
+                                text = whisperLanguage.uppercase(),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (whisperLanguage == "auto") TextTertiary else Purple,
+                            )
+                        }
                     }
 
                     // Copy & share — visible when text field has content
