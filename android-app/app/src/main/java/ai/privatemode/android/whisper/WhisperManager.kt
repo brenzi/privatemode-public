@@ -124,6 +124,12 @@ class WhisperManager(private val context: Context) {
         _modelState.value = WhisperModelState.NotDownloaded
     }
 
+    /** Abort a running transcription. Safe to call from any thread. */
+    fun abortTranscription() {
+        Log.i(TAG, "abortTranscription requested")
+        WhisperNative.nativeAbort()
+    }
+
     fun transcribe(samples: FloatArray): String {
         val cores = Runtime.getRuntime().availableProcessors()
         // ggml's thread barrier deadlocks on x86_64 emulators; use 1 thread there.

@@ -35,6 +35,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
@@ -109,6 +110,9 @@ class ChatViewModel(
     private var streamingJob: Job? = null
 
     companion object {
+        /** Max time to wait for whisper transcription before aborting (ms). */
+        internal const val TRANSCRIPTION_TIMEOUT_MS = 120_000L
+
         internal val SEARCH_PROBE_INSTRUCTION = """
 You have access to a web search tool. When the user's question requires current or real-time information you lack, you MUST invoke it by responding with exactly:
 [SEARCH: "your search query"]
@@ -312,20 +316,33 @@ If you can answer from your existing knowledge, answer normally without using th
         val recorder = audioRecorder ?: return
         recorder.stopRecording()
         _isRecording.value = false
+        val job = recordingJob
         recordingJob = null
         audioRecorder = null
 
         viewModelScope.launch {
             _isTranscribing.value = true
             try {
+                // Wait for the recording IO thread to fully stop before reading samples
+                job?.join()
                 val samples = recorder.getSamples()
                 if (samples.isEmpty()) return@launch
                 val text = withContext(Dispatchers.Default) {
-                    whisperManager.transcribe(samples)
+                    withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
+                        whisperManager.transcribe(samples)
+                    }
                 }
                 if (text.isNotBlank()) {
                     val current = _messageText.value
                     _messageText.value = if (current.isBlank()) text.trim() else "$current ${text.trim()}"
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                Log.e(TAG, "Transcription timed out", e)
+                whisperManager.abortTranscription()
+                _statusMessage.value = "Transcription timed out"
+                viewModelScope.launch {
+                    delay(4000)
+                    _statusMessage.compareAndSet("Transcription timed out", null)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Transcription failed", e)

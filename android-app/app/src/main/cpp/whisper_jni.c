@@ -8,12 +8,21 @@
 #include <jni.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <android/log.h>
 #include "whisper.h"
 
 #define TAG "WhisperJNI"
 
 static struct whisper_context *ctx = NULL;
+
+/* Abort flag — set from Kotlin to cancel a running transcription. */
+static atomic_int abort_flag = 0;
+
+static bool check_abort(void *user_data) {
+    (void)user_data;
+    return atomic_load(&abort_flag) != 0;
+}
 
 JNIEXPORT jint JNICALL
 Java_ai_privatemode_android_whisper_WhisperNative_nativeInit(
@@ -45,6 +54,9 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
         return (*env)->NewStringUTF(env, "");
     }
 
+    /* Reset abort flag at the start of each transcription. */
+    atomic_store(&abort_flag, 0);
+
     jsize n_samples = (*env)->GetArrayLength(env, samples);
     jfloat *data = (*env)->GetFloatArrayElements(env, samples, NULL);
 
@@ -54,16 +66,23 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
         n_samples, (float)n_samples / 16000.0f, threads);
 
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-    params.language = "de";
+    params.language = "auto";
     params.n_threads = threads;
     params.no_timestamps = true;
-    params.print_progress = true;
+    params.print_progress = false;
     params.print_realtime = false;
     params.print_special = false;
     params.print_timestamps = false;
+    params.abort_callback = check_abort;
+    params.abort_callback_user_data = NULL;
 
     int ret = whisper_full(ctx, params, data, n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, data, JNI_ABORT);
+
+    if (atomic_load(&abort_flag) != 0) {
+        __android_log_print(ANDROID_LOG_INFO, TAG, "whisper_full aborted by caller");
+        return (*env)->NewStringUTF(env, "");
+    }
 
     if (ret != 0) {
         __android_log_print(ANDROID_LOG_ERROR, TAG, "whisper_full failed: %d", ret);
@@ -94,6 +113,14 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
     jstring result = (*env)->NewStringUTF(env, buf);
     free(buf);
     return result;
+}
+
+JNIEXPORT void JNICALL
+Java_ai_privatemode_android_whisper_WhisperNative_nativeAbort(
+    JNIEnv *env, jobject thiz) {
+
+    __android_log_print(ANDROID_LOG_INFO, TAG, "nativeAbort called");
+    atomic_store(&abort_flag, 1);
 }
 
 JNIEXPORT void JNICALL

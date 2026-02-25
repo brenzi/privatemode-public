@@ -24,6 +24,7 @@ object WhisperNative {
 
     external fun nativeInit(modelPath: String): Int
     external fun nativeTranscribe(samples: FloatArray, nThreads: Int): String
+    external fun nativeAbort()
     external fun nativeFree()
     external fun nativeIsLoaded(): Boolean
 }
