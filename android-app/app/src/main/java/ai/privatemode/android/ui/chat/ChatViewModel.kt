@@ -19,6 +19,7 @@ import ai.privatemode.android.data.model.countWords
 import ai.privatemode.android.data.remote.ApiException
 import ai.privatemode.android.data.remote.StartpageSearchClient
 import ai.privatemode.android.data.repository.ChatRepository
+import ai.privatemode.android.whisper.AudioDecoder
 import ai.privatemode.android.whisper.AudioRecorder
 import ai.privatemode.android.whisper.WhisperManager
 import ai.privatemode.android.whisper.WhisperModelState
@@ -111,6 +112,9 @@ class ChatViewModel(
 
     fun setWhisperLanguage(language: String) {
         _whisperLanguage.value = language
+        viewModelScope.launch {
+            repository.setWhisperLanguage(language)
+        }
     }
 
     private var audioRecorder: AudioRecorder? = null
@@ -181,6 +185,11 @@ If you can answer from your existing knowledge, answer normally without using th
         viewModelScope.launch {
             repository.extendedThinking.collect { enabled ->
                 _extendedThinking.value = enabled
+            }
+        }
+        viewModelScope.launch {
+            repository.whisperLanguage.collect { lang ->
+                _whisperLanguage.value = lang
             }
         }
     }
@@ -309,6 +318,50 @@ If you can answer from your existing knowledge, answer normally without using th
                 throw e
             } finally {
                 _isUploading.value = false
+            }
+        }
+    }
+
+    fun attachAudioFile(context: Context, uri: Uri) {
+        if (!whisperManager.isReady()) return
+        viewModelScope.launch {
+            _isTranscribing.value = true
+            _statusMessage.value = "Transcribing audio file..."
+            try {
+                val fileName = getFileName(context, uri)
+                val samples = withContext(Dispatchers.IO) {
+                    AudioDecoder.decode(context, uri)
+                }
+                if (samples.isEmpty()) throw Exception("No audio data decoded")
+
+                val language = _whisperLanguage.value
+                val text = withContext(Dispatchers.Default) {
+                    withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
+                        whisperManager.transcribe(samples, language)
+                    }
+                }
+                if (text.isNotBlank()) {
+                    val current = _messageText.value
+                    _messageText.value = if (current.isBlank()) text.trim() else "$current ${text.trim()}"
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                Log.e(TAG, "Audio file transcription timed out", e)
+                whisperManager.abortTranscription()
+                _statusMessage.value = "Transcription timed out"
+                viewModelScope.launch {
+                    delay(4000)
+                    _statusMessage.compareAndSet("Transcription timed out", null)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Audio file transcription failed", e)
+                _statusMessage.value = "Audio transcription failed: ${e.message}"
+                viewModelScope.launch {
+                    delay(4000)
+                    _statusMessage.compareAndSet("Audio transcription failed: ${e.message}", null)
+                }
+            } finally {
+                _isTranscribing.value = false
+                _statusMessage.compareAndSet("Transcribing audio file...", null)
             }
         }
     }

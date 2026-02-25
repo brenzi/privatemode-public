@@ -26,6 +26,7 @@ class PreferencesManager(private val context: Context) {
         private val STT_ENABLED = booleanPreferencesKey("stt_enabled")
         private val STT_PROMPT_SHOWN = booleanPreferencesKey("stt_prompt_shown")
         private val STT_MODEL_SIZE = stringPreferencesKey("stt_model_size")
+        private val WHISPER_LANGUAGE = stringPreferencesKey("whisper_language")
 
         const val DEFAULT_SERVER_URL = "https://api.privatemode.ai"
     }
@@ -122,6 +123,16 @@ class PreferencesManager(private val context: Context) {
     suspend fun setSttModelSize(size: String) {
         context.dataStore.edit { preferences ->
             preferences[STT_MODEL_SIZE] = size
+        }
+    }
+
+    val whisperLanguage: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[WHISPER_LANGUAGE] ?: "auto"
+    }
+
+    suspend fun setWhisperLanguage(language: String) {
+        context.dataStore.edit { preferences ->
+            preferences[WHISPER_LANGUAGE] = language
         }
     }
 }

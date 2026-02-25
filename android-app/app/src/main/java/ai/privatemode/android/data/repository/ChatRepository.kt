@@ -41,6 +41,7 @@ class ChatRepository(
     val extendedThinking: Flow<Boolean> = preferences.extendedThinking
     val webSearch: Flow<Boolean> = preferences.webSearch
     val serverUrl: Flow<String> = preferences.serverUrl
+    val whisperLanguage: Flow<String> = preferences.whisperLanguage
 
     private suspend fun createClient(): PrivatemodeClient? {
         val baseUrl = proxyManager.getBaseUrl()
@@ -150,6 +151,10 @@ class ChatRepository(
 
     suspend fun setServerUrl(url: String) {
         preferences.setServerUrl(url)
+    }
+
+    suspend fun setWhisperLanguage(language: String) {
+        preferences.setWhisperLanguage(language)
     }
 
     fun setCurrentChatId(chatId: String?) {

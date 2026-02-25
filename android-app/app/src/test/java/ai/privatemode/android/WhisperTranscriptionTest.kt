@@ -118,7 +118,7 @@ class WhisperTranscriptionTest {
     @Test
     fun `transcription result is appended to message text`() = runTest {
         val whisperManager = createMockWhisperManager(ready = true)
-        every { whisperManager.transcribe(any()) } returns "Hello world"
+        every { whisperManager.transcribe(any(), any()) } returns "Hello world"
 
         val repo = createMockRepo()
         val vm = ChatViewModel(repo, whisperManager)
@@ -241,7 +241,7 @@ class WhisperTranscriptionTest {
         return mockk {
             every { modelState } returns MutableStateFlow(state)
             every { isReady() } returns ready
-            every { transcribe(any()) } returns ""
+            every { transcribe(any(), any()) } returns ""
             every { abortTranscription() } just Runs
         }
     }
@@ -254,6 +254,7 @@ class WhisperTranscriptionTest {
             every { availableModels } returns MutableStateFlow(emptyList())
             every { selectedModel } returns flowOf("openai/gpt-oss-120b")
             every { extendedThinking } returns flowOf(false)
+            every { whisperLanguage } returns flowOf("auto")
 
             coEvery { createChat() } returns "test-chat-1"
             every { setCurrentChatId(any()) } just Runs

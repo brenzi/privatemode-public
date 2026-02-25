@@ -238,6 +238,7 @@ fun ChatScreen(
             liveTranscription = liveTranscription,
             whisperLanguage = whisperLanguage,
             onWhisperLanguageChange = { viewModel.setWhisperLanguage(it) },
+            onAttachAudio = { ctx, uri -> viewModel.attachAudioFile(ctx, uri) },
         )
     }
 
@@ -459,6 +460,7 @@ private fun ChatInputBar(
     liveTranscription: String = "",
     whisperLanguage: String = "auto",
     onWhisperLanguageChange: (String) -> Unit = {},
+    onAttachAudio: (context: android.content.Context, uri: android.net.Uri) -> Unit = { _, _ -> },
 ) {
     val languageOptions = listOf("auto", "en", "de")
     val whisperModelReady = whisperModelState is WhisperModelState.Ready
@@ -480,6 +482,14 @@ private fun ChatInputBar(
     ) { uri ->
         if (uri != null) {
             onAttachImage(context, uri)
+        }
+    }
+
+    val audioPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            onAttachAudio(context, uri)
         }
     }
 
@@ -636,13 +646,13 @@ private fun ChatInputBar(
                     Box {
                         IconButton(
                             onClick = {
-                                if (supportsImageInput) {
+                                if (supportsImageInput || whisperModelReady) {
                                     showAttachMenu = true
                                 } else {
                                     filePickerLauncher.launch("*/*")
                                 }
                             },
-                            enabled = !isGenerating && !isUploading && supportsFileUploads,
+                            enabled = !isGenerating && !isUploading && (supportsFileUploads || whisperModelReady),
                             modifier = Modifier.size(36.dp),
                         ) {
                             Icon(
@@ -683,6 +693,18 @@ private fun ChatInputBar(
                                     Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(20.dp))
                                 },
                             )
+                            if (whisperModelReady) {
+                                DropdownMenuItem(
+                                    text = { Text("Transcribe Audio") },
+                                    onClick = {
+                                        showAttachMenu = false
+                                        audioPickerLauncher.launch("audio/*")
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Mic, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    },
+                                )
+                            }
                         }
                     }
 
