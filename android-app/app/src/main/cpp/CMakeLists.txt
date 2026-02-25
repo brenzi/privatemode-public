@@ -23,7 +23,7 @@ set(CMAKE_CXX_FLAGS_DEBUG "-g" CACHE STRING "" FORCE)
 # Tell ggml-cpu which ARM ISA to target (GGML_NATIVE is OFF when cross-compiling).
 # Without this, ggml-cpu falls back to baseline armv8.0 with no fp16 vector ops.
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    set(GGML_CPU_ARM_ARCH "armv8.2-a+fp16" CACHE STRING "" FORCE)
+    set(GGML_CPU_ARM_ARCH "armv8.2-a+fp16+dotprod" CACHE STRING "" FORCE)
 endif()
 
 # Build ggml as STATIC libs — avoids shared-library backend registration issues on Android
@@ -55,7 +55,7 @@ target_include_directories(whisper_jni PRIVATE
 
 # ARM fp16 optimization for whisper.cpp source (ggml-cpu gets it via GGML_CPU_ARM_ARCH above)
 if (${ANDROID_ABI} STREQUAL "arm64-v8a")
-    target_compile_options(whisper_jni PRIVATE -march=armv8.2-a+fp16)
+    target_compile_options(whisper_jni PRIVATE -march=armv8.2-a+fp16+dotprod)
 endif()
 
 target_link_libraries(whisper_jni ${LOG_LIB} android ggml)

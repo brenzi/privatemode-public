@@ -54,14 +54,10 @@ class SettingsViewModel(
     fun setSttEnabled(enabled: Boolean) {
         viewModelScope.launch {
             repository.preferences.setSttEnabled(enabled)
-            if (enabled) {
-                whisperManager.initialize()
-                if (whisperManager.modelState.value is WhisperModelState.NotDownloaded) {
-                    whisperManager.downloadModel()
-                }
-            } else {
+            if (!enabled) {
                 whisperManager.deleteModel()
             }
+            // When enabling, MainActivity's LaunchedEffect handles init/download
         }
     }
 

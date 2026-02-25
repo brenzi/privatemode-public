@@ -95,9 +95,9 @@ private fun AppContent(app: PrivatemodeApp) {
         }
     }
 
-    // Initialize whisper if STT enabled
-    LaunchedEffect(sttEnabled, initialized) {
-        if (sttEnabled && initialized) {
+    // Initialize whisper if STT enabled — no dependency on proxy/API
+    LaunchedEffect(sttEnabled) {
+        if (sttEnabled) {
             val sizeName = app.preferences.sttModelSize.first()
             app.whisperManager.setModelSize(WhisperModelSize.fromString(sizeName))
             app.whisperManager.initialize()
@@ -114,8 +114,6 @@ private fun AppContent(app: PrivatemodeApp) {
                 scope.launch {
                     app.preferences.setSttEnabled(true)
                     app.preferences.setSttPromptShown(true)
-                    app.whisperManager.initialize()
-                    app.whisperManager.downloadModel()
                 }
             },
             onDismiss = {

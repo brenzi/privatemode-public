@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -50,6 +52,9 @@ class WhisperManager(private val context: Context) {
     private val TAG = "WhisperManager"
     private val MODEL_DIR = "whisper"
 
+    /** Serializes initialize/download — prevents concurrent model loading and duplicate downloads. */
+    private val modelMutex = Mutex()
+
     var modelSize: WhisperModelSize = WhisperModelSize.SMALL
         private set
 
@@ -58,7 +63,7 @@ class WhisperManager(private val context: Context) {
 
     private val downloadClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(300, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS) // per-read: only fires if zero bytes for 60s (stalled)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -67,75 +72,119 @@ class WhisperManager(private val context: Context) {
     private fun modelFile(): File = File(modelDir(), modelSize.fileName)
 
     fun setModelSize(size: WhisperModelSize) {
-        if (size == modelSize && _modelState.value is WhisperModelState.Ready) return
+        if (size == modelSize) return
         if (WhisperNative.isLoaded()) WhisperNative.nativeFree()
         modelSize = size
-        _modelState.value = if (modelFile().exists()) WhisperModelState.Ready else WhisperModelState.NotDownloaded
+        // Don't set Ready here — nativeFree was called, so initialize() must reload
+        _modelState.value = WhisperModelState.NotDownloaded
     }
 
     suspend fun initialize() = withContext(Dispatchers.IO) {
-        if (!WhisperNative.loadLibrary()) {
-            _modelState.value = WhisperModelState.Error("Failed to load native library")
-            return@withContext
-        }
-        val file = modelFile()
-        if (file.exists()) {
-            Log.i(TAG, "Loading model from ${file.absolutePath} (${file.length() / 1024 / 1024}MB)")
-            val result = WhisperNative.nativeInit(file.absolutePath)
-            _modelState.value = if (result == 0) {
-                Log.i(TAG, "Model loaded successfully")
-                WhisperModelState.Ready
-            } else {
-                Log.e(TAG, "nativeInit returned $result")
-                WhisperModelState.Error("Failed to load model")
+        modelMutex.withLock {
+            if (_modelState.value is WhisperModelState.Ready) return@withContext
+            if (!WhisperNative.loadLibrary()) {
+                _modelState.value = WhisperModelState.Error("Failed to load native library")
+                return@withContext
             }
-        } else {
-            _modelState.value = WhisperModelState.NotDownloaded
+            val file = modelFile()
+            if (file.exists()) {
+                Log.i(TAG, "Loading model from ${file.absolutePath} (${file.length() / 1024 / 1024}MB)")
+                val result = WhisperNative.nativeInit(file.absolutePath)
+                _modelState.value = if (result == 0) {
+                    Log.i(TAG, "Model loaded successfully")
+                    WhisperModelState.Ready
+                } else {
+                    Log.e(TAG, "nativeInit returned $result")
+                    WhisperModelState.Error("Failed to load model")
+                }
+            } else {
+                _modelState.value = WhisperModelState.NotDownloaded
+            }
         }
     }
 
     suspend fun downloadModel() = withContext(Dispatchers.IO) {
-        try {
-            _modelState.value = WhisperModelState.Downloading(0f)
+        modelMutex.withLock {
+            val state = _modelState.value
+            if (state is WhisperModelState.Downloading || state is WhisperModelState.Ready) return@withContext
 
             val dir = modelDir()
             if (!dir.exists()) dir.mkdirs()
             val file = modelFile()
             val tmpFile = File(dir, "${modelSize.fileName}.tmp")
+            val maxRetries = 5
 
-            val request = Request.Builder().url(modelSize.downloadUrl).build()
-            val response = downloadClient.newCall(request).execute()
+            for (attempt in 1..maxRetries) {
+                try {
+                    // Resume from partial download if tmp file exists
+                    val existingBytes = if (tmpFile.exists()) tmpFile.length() else 0L
+                    _modelState.value = WhisperModelState.Downloading(
+                        if (existingBytes > 0) existingBytes.toFloat() / (modelSize.sizeMb * 1_048_576f) else 0f
+                    )
 
-            if (!response.isSuccessful) {
-                _modelState.value = WhisperModelState.Error("Download failed: ${response.code}")
-                return@withContext
-            }
+                    val requestBuilder = Request.Builder().url(modelSize.downloadUrl)
+                    if (existingBytes > 0) {
+                        requestBuilder.header("Range", "bytes=$existingBytes-")
+                        Log.i(TAG, "Resuming download from ${existingBytes / 1024}KB (attempt $attempt)")
+                    }
+                    val response = downloadClient.newCall(requestBuilder.build()).execute()
 
-            val body = response.body ?: run {
-                _modelState.value = WhisperModelState.Error("Empty response")
-                return@withContext
-            }
+                    // 416 = range not satisfiable — file is already complete
+                    if (response.code == 416) {
+                        response.close()
+                        tmpFile.renameTo(file)
+                        break
+                    }
 
-            val contentLength = body.contentLength()
-            var bytesRead = 0L
+                    if (!response.isSuccessful && response.code != 206) {
+                        response.close()
+                        _modelState.value = WhisperModelState.Error("Download failed: ${response.code}")
+                        return@withContext
+                    }
 
-            body.byteStream().use { input ->
-                FileOutputStream(tmpFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var read: Int
-                    while (input.read(buffer).also { read = it } != -1) {
-                        output.write(buffer, 0, read)
-                        bytesRead += read
-                        if (contentLength > 0) {
-                            _modelState.value = WhisperModelState.Downloading(
-                                bytesRead.toFloat() / contentLength
-                            )
+                    val body = response.body ?: run {
+                        response.close()
+                        _modelState.value = WhisperModelState.Error("Empty response")
+                        return@withContext
+                    }
+
+                    // Total size: for resumed downloads, add existing bytes
+                    val totalSize = if (response.code == 206) {
+                        existingBytes + body.contentLength()
+                    } else {
+                        body.contentLength()
+                    }
+                    var bytesWritten = existingBytes
+
+                    body.byteStream().use { input ->
+                        // Append if resuming, truncate if fresh start
+                        FileOutputStream(tmpFile, response.code == 206).use { output ->
+                            val buffer = ByteArray(65536)
+                            var read: Int
+                            while (input.read(buffer).also { read = it } != -1) {
+                                output.write(buffer, 0, read)
+                                bytesWritten += read
+                                if (totalSize > 0) {
+                                    _modelState.value = WhisperModelState.Downloading(
+                                        bytesWritten.toFloat() / totalSize
+                                    )
+                                }
+                            }
                         }
                     }
+
+                    tmpFile.renameTo(file)
+                    break // success
+                } catch (e: Exception) {
+                    Log.e(TAG, "Download attempt $attempt/$maxRetries failed", e)
+                    if (attempt == maxRetries) {
+                        _modelState.value = WhisperModelState.Error("Download interrupted — tap Retry")
+                        return@withContext
+                    }
+                    // Exponential backoff: 10s, 20s, 40s, 80s — gives time for app to return to foreground
+                    kotlinx.coroutines.delay(10_000L * (1L shl (attempt - 1)))
                 }
             }
-
-            tmpFile.renameTo(file)
 
             if (!WhisperNative.isLoaded()) {
                 WhisperNative.loadLibrary()
@@ -146,9 +195,6 @@ class WhisperManager(private val context: Context) {
             } else {
                 WhisperModelState.Error("Failed to load model")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Model download failed", e)
-            _modelState.value = WhisperModelState.Error(e.message ?: "Download failed")
         }
     }
 
@@ -177,7 +223,7 @@ class WhisperManager(private val context: Context) {
         val isEmulator = android.os.Build.HARDWARE.contains("ranchu") ||
             android.os.Build.HARDWARE.contains("goldfish") ||
             android.os.Build.FINGERPRINT.contains("generic")
-        val threads = if (isEmulator) 1 else 2
+        val threads = if (isEmulator) 1 else 4
         Log.i(TAG, "transcribe: ${samples.size} samples (${samples.size / 16000f}s), $threads threads (emulator=$isEmulator)")
         val start = System.currentTimeMillis()
         val result = WhisperNative.nativeTranscribe(samples, threads)

@@ -14,6 +14,29 @@
 
 #define TAG "WhisperJNI"
 
+/* Sanitize a buffer in-place so it is valid Modified UTF-8 for NewStringUTF.
+ * Replaces any byte that would start an invalid sequence with '?'. */
+static void sanitize_mutf8(char *buf, size_t len) {
+    size_t i = 0;
+    while (i < len) {
+        unsigned char c = (unsigned char)buf[i];
+        if (c == 0) break;
+        if (c < 0x80) { i++; continue; }                          /* ASCII */
+        if ((c & 0xE0) == 0xC0) {                                 /* 2-byte */
+            if (i + 1 < len && (buf[i+1] & 0xC0) == 0x80) { i += 2; continue; }
+        } else if ((c & 0xF0) == 0xE0) {                          /* 3-byte */
+            if (i + 2 < len && (buf[i+1] & 0xC0) == 0x80
+                            && (buf[i+2] & 0xC0) == 0x80) { i += 3; continue; }
+        } else if ((c & 0xF8) == 0xF0) {                          /* 4-byte */
+            if (i + 3 < len && (buf[i+1] & 0xC0) == 0x80
+                            && (buf[i+2] & 0xC0) == 0x80
+                            && (buf[i+3] & 0xC0) == 0x80) { i += 4; continue; }
+        }
+        buf[i] = '?';                                             /* invalid */
+        i++;
+    }
+}
+
 static struct whisper_context *ctx = NULL;
 
 /* Abort flag — set from Kotlin to cancel a running transcription. */
@@ -78,6 +101,8 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
     struct whisper_full_params params = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
     params.language = "auto";
     params.n_threads = threads;
+    params.greedy.best_of = 1;
+    params.single_segment = true;
     params.no_timestamps = true;
     params.print_progress = false;
     params.print_realtime = false;
@@ -87,6 +112,15 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
     params.abort_callback_user_data = NULL;
     params.progress_callback = on_progress;
     params.progress_callback_user_data = NULL;
+
+    /* Scale audio_ctx to actual recording length instead of default 1500 (30s).
+     * Whisper uses 50 mel frames/second, so n_samples/16000*50 = n_samples/320.
+     * Add 10% headroom and clamp to [64, 1500]. */
+    int frames_needed = (int)(n_samples / 320) + (int)(n_samples / 3200) + 16;
+    if (frames_needed < 64) frames_needed = 64;
+    if (frames_needed > 1500) frames_needed = 1500;
+    params.audio_ctx = frames_needed;
+    __android_log_print(ANDROID_LOG_INFO, TAG, "audio_ctx=%d for %d samples", frames_needed, n_samples);
 
     int ret = whisper_full(ctx, params, data, n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, data, JNI_ABORT);
@@ -121,6 +155,7 @@ Java_ai_privatemode_android_whisper_WhisperNative_nativeTranscribe(
         offset += len;
     }
     buf[offset] = '\0';
+    sanitize_mutf8(buf, offset);
 
     jstring result = (*env)->NewStringUTF(env, buf);
     free(buf);
