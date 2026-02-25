@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.ByteArrayOutputStream
+import kotlin.coroutines.coroutineContext
 import java.io.File
 import java.io.FileOutputStream
 import java.time.ZonedDateTime
@@ -102,8 +103,16 @@ class ChatViewModel(
 
     val whisperModelState: StateFlow<WhisperModelState> = whisperManager.modelState
 
+    private val _liveTranscription = MutableStateFlow("")
+    val liveTranscription: StateFlow<String> = _liveTranscription.asStateFlow()
+
     private var audioRecorder: AudioRecorder? = null
     private var recordingJob: Job? = null
+    private var pipelineJob: Job? = null
+
+    // Shared pipeline state — written by pipeline coroutine, read by stopRecording
+    private var pipelineTranscribedUpTo = 0
+    private val pipelineCommitted = StringBuilder()
 
     private val _attachedFiles = MutableStateFlow<List<AttachedFile>>(emptyList())
     val attachedFiles: StateFlow<List<AttachedFile>> = _attachedFiles.asStateFlow()
@@ -116,6 +125,12 @@ class ChatViewModel(
     companion object {
         /** Max time to wait for whisper transcription before aborting (ms). */
         internal const val TRANSCRIPTION_TIMEOUT_MS = 120_000L
+
+        // Pipeline chunk constants (sample counts at 16 kHz)
+        private const val CHUNK_SAMPLES = 10 * 16000      // 10 s target chunk
+        private const val STEP_SAMPLES = 8 * 16000        // 8 s of new audio triggers next chunk
+        private const val MIN_FIRST_SAMPLES = CHUNK_SAMPLES  // wait for full chunk first time
+        private const val MIN_TAIL_SAMPLES = 8000          // 0.5 s minimum tail
 
         internal val SEARCH_PROBE_INSTRUCTION = """
 You have access to a web search tool. When the user's question requires current or real-time information you lack, you MUST invoke it by responding with exactly:
@@ -297,6 +312,9 @@ If you can answer from your existing knowledge, answer normally without using th
         audioRecorder = recorder
         _isRecording.value = true
         _audioAmplitudes.value = emptyList()
+        _liveTranscription.value = ""
+        pipelineTranscribedUpTo = 0
+        pipelineCommitted.clear()
 
         // Collect amplitudes for waveform
         viewModelScope.launch {
@@ -313,6 +331,11 @@ If you can answer from your existing knowledge, answer normally without using th
                 Log.e(TAG, "Recording failed", e)
             }
         }
+
+        // Start pipelined transcription on Default
+        pipelineJob = viewModelScope.launch(Dispatchers.Default) {
+            runTranscriptionPipeline(recorder)
+        }
     }
 
     fun stopRecording() {
@@ -320,57 +343,116 @@ If you can answer from your existing knowledge, answer normally without using th
         val recorder = audioRecorder ?: return
         recorder.stopRecording()
         _isRecording.value = false
-        val job = recordingJob
+
+        // Abort any in-progress pipeline transcription so the native call returns fast
+        whisperManager.abortTranscription()
+
+        val recJob = recordingJob
+        val pipJob = pipelineJob
         recordingJob = null
+        pipelineJob = null
         audioRecorder = null
 
         viewModelScope.launch {
             _isTranscribing.value = true
             _transcriptionProgress.value = 0
-            var progressJob: Job? = null
             try {
-                // Wait for the recording IO thread to fully stop before reading samples
-                job?.join()
-                val samples = recorder.getSamples()
-                if (samples.isEmpty()) return@launch
+                // Wait for recording IO and pipeline to finish
+                recJob?.join()
+                pipJob?.cancel()
+                pipJob?.join()
 
-                // Poll native progress while transcription runs
-                progressJob = viewModelScope.launch {
-                    while (true) {
-                        delay(250)
-                        _transcriptionProgress.value = WhisperNative.nativeGetProgress()
+                // Transcribe un-processed tail
+                val total = recorder.getSampleCount()
+                val tailSamples = recorder.getSamplesRange(pipelineTranscribedUpTo, total)
+
+                if (tailSamples.size >= MIN_TAIL_SAMPLES) {
+                    val text = withContext(Dispatchers.Default) {
+                        withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
+                            whisperManager.transcribe(tailSamples)
+                        }
+                    }
+                    if (text.isNotBlank()) {
+                        if (pipelineCommitted.isEmpty()) {
+                            pipelineCommitted.append(text.trim())
+                        } else {
+                            pipelineCommitted.append(" ").append(text.trim())
+                        }
                     }
                 }
 
-                val text = withContext(Dispatchers.Default) {
-                    withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
-                        whisperManager.transcribe(samples)
-                    }
-                }
-                if (text.isNotBlank()) {
+                // Commit to message text
+                val result = pipelineCommitted.toString().trim()
+                if (result.isNotBlank()) {
                     val current = _messageText.value
-                    _messageText.value = if (current.isBlank()) text.trim() else "$current ${text.trim()}"
+                    _messageText.value = if (current.isBlank()) result else "$current $result"
                 }
             } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                Log.e(TAG, "Transcription timed out", e)
+                Log.e(TAG, "Tail transcription timed out", e)
                 whisperManager.abortTranscription()
+                // Still commit whatever the pipeline produced
+                val result = pipelineCommitted.toString().trim()
+                if (result.isNotBlank()) {
+                    val current = _messageText.value
+                    _messageText.value = if (current.isBlank()) result else "$current $result"
+                }
                 _statusMessage.value = "Transcription timed out"
                 viewModelScope.launch {
                     delay(4000)
                     _statusMessage.compareAndSet("Transcription timed out", null)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Transcription failed", e)
+                Log.e(TAG, "Tail transcription failed", e)
+                // Still commit whatever the pipeline produced
+                val result = pipelineCommitted.toString().trim()
+                if (result.isNotBlank()) {
+                    val current = _messageText.value
+                    _messageText.value = if (current.isBlank()) result else "$current $result"
+                }
                 _statusMessage.value = "Transcription failed: ${e.message}"
                 viewModelScope.launch {
                     delay(4000)
                     _statusMessage.compareAndSet("Transcription failed: ${e.message}", null)
                 }
             } finally {
-                progressJob?.cancel()
                 _transcriptionProgress.value = 0
                 _isTranscribing.value = false
+                _liveTranscription.value = ""
             }
+        }
+    }
+
+    private suspend fun runTranscriptionPipeline(recorder: AudioRecorder) {
+        while (coroutineContext[Job]?.isActive == true && _isRecording.value) {
+            val total = recorder.getSampleCount()
+            val newAudio = total - pipelineTranscribedUpTo
+            val threshold = if (pipelineCommitted.isEmpty()) MIN_FIRST_SAMPLES else STEP_SAMPLES
+
+            if (newAudio < threshold) {
+                delay(200)
+                continue
+            }
+
+            // Find a silence gap near the target chunk end to avoid splitting words
+            val targetEnd = minOf(total, pipelineTranscribedUpTo + CHUNK_SAMPLES)
+            val chunkEnd = recorder.findSilenceGap(targetEnd)
+                .coerceIn(pipelineTranscribedUpTo + 1, total)
+            val samples = recorder.getSamplesRange(pipelineTranscribedUpTo, chunkEnd)
+
+            try {
+                val text = whisperManager.transcribe(samples)
+                if (text.isNotBlank()) {
+                    if (pipelineCommitted.isEmpty()) {
+                        pipelineCommitted.append(text.trim())
+                    } else {
+                        pipelineCommitted.append(" ").append(text.trim())
+                    }
+                    _liveTranscription.value = pipelineCommitted.toString()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Pipeline chunk transcription failed", e)
+            }
+            pipelineTranscribedUpTo = chunkEnd
         }
     }
 

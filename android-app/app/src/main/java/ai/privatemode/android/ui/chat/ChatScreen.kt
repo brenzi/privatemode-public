@@ -1,5 +1,6 @@
 package ai.privatemode.android.ui.chat
 
+import android.content.Intent
 import android.widget.TextView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,9 +24,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -43,6 +46,7 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
@@ -60,6 +64,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -115,6 +120,18 @@ fun ChatScreen(
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
     val whisperModelState by viewModel.whisperModelState.collectAsState()
     val transcriptionProgress by viewModel.transcriptionProgress.collectAsState()
+    val liveTranscription by viewModel.liveTranscription.collectAsState()
+
+    // Keep screen on while recording or transcribing
+    if (isRecording || isTranscribing) {
+        val activity = LocalContext.current as? android.app.Activity
+        DisposableEffect(Unit) {
+            activity?.window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            onDispose {
+                activity?.window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
 
     val messages = currentChat?.messages ?: emptyList()
     val listState = rememberLazyListState()
@@ -217,6 +234,7 @@ fun ChatScreen(
             filteredModels = filteredModels,
             whisperModelState = whisperModelState,
             transcriptionProgress = transcriptionProgress,
+            liveTranscription = liveTranscription,
         )
     }
 
@@ -435,6 +453,7 @@ private fun ChatInputBar(
     filteredModels: List<ai.privatemode.android.data.model.ApiModel>,
     whisperModelState: WhisperModelState = WhisperModelState.NotDownloaded,
     transcriptionProgress: Int = 0,
+    liveTranscription: String = "",
 ) {
     val whisperModelReady = whisperModelState is WhisperModelState.Ready
     val context = LocalContext.current
@@ -551,12 +570,31 @@ private fun ChatInputBar(
 
             // Text input or waveform
             if (isRecording) {
-                WaveformIndicator(
-                    amplitudes = audioAmplitudes,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                )
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (liveTranscription.isNotBlank()) {
+                        val scrollState = rememberScrollState()
+                        LaunchedEffect(liveTranscription) {
+                            scrollState.animateScrollTo(scrollState.maxValue)
+                        }
+                        Text(
+                            text = liveTranscription,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextTertiary,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(scrollState)
+                                .padding(bottom = 4.dp),
+                        )
+                    }
+                    WaveformIndicator(
+                        amplitudes = audioAmplitudes,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (liveTranscription.isNotBlank()) 36.dp else 56.dp),
+                    )
+                }
             } else {
                 OutlinedTextField(
                     value = messageText,
@@ -669,6 +707,39 @@ private fun ChatInputBar(
                                 else if (whisperModelReady) TextSecondary
                                 else TextTertiary,
                         )
+                    }
+
+                    // Copy & share — visible when text field has content
+                    if (messageText.isNotBlank() && !isRecording && !isGenerating) {
+                        val clipboardManager = LocalClipboardManager.current
+                        IconButton(
+                            onClick = { clipboardManager.setText(AnnotatedString(messageText)) },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy text",
+                                modifier = Modifier.size(20.dp),
+                                tint = TextSecondary,
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                    putExtra(Intent.EXTRA_TEXT, messageText)
+                                    type = "text/plain"
+                                }
+                                context.startActivity(Intent.createChooser(sendIntent, null))
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Share,
+                                contentDescription = "Share text",
+                                modifier = Modifier.size(20.dp),
+                                tint = TextSecondary,
+                            )
+                        }
                     }
 
                     val downloadingState = whisperModelState as? WhisperModelState.Downloading
