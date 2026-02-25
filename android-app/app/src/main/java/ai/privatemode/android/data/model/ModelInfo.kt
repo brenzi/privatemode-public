@@ -4,6 +4,7 @@ const val DEFAULT_MODEL_ID = "openai/gpt-oss-120b"
 
 data class ModelInfo(
     val displayName: String,
+    val shortName: String = displayName,
     val subtitle: String,
     val systemPrompt: String,
     val supportsExtendedThinking: Boolean = false,
@@ -42,6 +43,7 @@ private fun getSystemPrompt(modelName: String): String {
 val MODEL_CONFIG: Map<String, ModelInfo> = mapOf(
     "openai/gpt-oss-120b" to ModelInfo(
         displayName = "gpt-oss-120b",
+        shortName = "GPT",
         subtitle = "Reasoning model suited for complex tasks",
         systemPrompt = getSystemPrompt("gpt-oss-120b"),
         supportsExtendedThinking = true,
@@ -50,6 +52,7 @@ val MODEL_CONFIG: Map<String, ModelInfo> = mapOf(
     ),
     "leon-se/gemma-3-27b-it-fp8-dynamic" to ModelInfo(
         displayName = "Gemma 3 27B",
+        shortName = "Gemma",
         subtitle = "Multi-modal model with image understanding",
         systemPrompt = getSystemPrompt("Gemma 3 27B"),
         supportsFileUploads = false,
@@ -59,6 +62,7 @@ val MODEL_CONFIG: Map<String, ModelInfo> = mapOf(
     ),
     "qwen3-coder-30b-a3b" to ModelInfo(
         displayName = "Qwen3 Coder 30B",
+        shortName = "Qwen",
         subtitle = "Coding-specialized model for programming tasks",
         systemPrompt = getSystemPrompt("Qwen3 Coder 30B"),
         supportsFileUploads = true,

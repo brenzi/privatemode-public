@@ -120,6 +120,7 @@ class ChatViewModel(
     private var audioRecorder: AudioRecorder? = null
     private var recordingJob: Job? = null
     private var pipelineJob: Job? = null
+    private var transcriptionJob: Job? = null
 
     // Shared pipeline state — written by pipeline coroutine, read by stopRecording
     private var pipelineTranscribedUpTo = 0
@@ -322,36 +323,50 @@ If you can answer from your existing knowledge, answer normally without using th
         }
     }
 
+    fun cancelTranscription() {
+        transcriptionJob?.cancel()
+        transcriptionJob = null
+        whisperManager.abortTranscription()
+        _isTranscribing.value = false
+        _liveTranscription.value = ""
+        _statusMessage.value = null
+    }
+
     fun attachAudioFile(context: Context, uri: Uri) {
         if (!whisperManager.isReady()) return
-        viewModelScope.launch {
+        transcriptionJob = viewModelScope.launch {
             _isTranscribing.value = true
+            _liveTranscription.value = ""
             _statusMessage.value = "Transcribing audio file..."
             try {
-                val fileName = getFileName(context, uri)
-                val samples = withContext(Dispatchers.IO) {
-                    AudioDecoder.decode(context, uri)
-                }
-                if (samples.isEmpty()) throw Exception("No audio data decoded")
-
                 val language = _whisperLanguage.value
-                val text = withContext(Dispatchers.Default) {
-                    withTimeout(TRANSCRIPTION_TIMEOUT_MS) {
-                        whisperManager.transcribe(samples, language)
+                val committed = StringBuilder()
+
+                withContext(Dispatchers.IO) {
+                    AudioDecoder.decodeChunked(context, uri) { chunk, chunkIndex, estTotal ->
+                        val pct = ((chunkIndex + 1) * 100 / maxOf(estTotal, chunkIndex + 1))
+                            .coerceIn(0, 100)
+                        Log.i(TAG, "Transcribing file chunk ${chunkIndex+1}/$estTotal (${chunk.size / 16000f}s) $pct%")
+                        _statusMessage.value = "Transcribing ${chunkIndex + 1}/$estTotal ($pct%)"
+                        val text = whisperManager.transcribe(chunk, language)
+                        if (text.isNotBlank()) {
+                            if (committed.isEmpty()) {
+                                committed.append(text.trim())
+                            } else {
+                                committed.append(" ").append(text.trim())
+                            }
+                            _liveTranscription.value = committed.toString()
+                        }
                     }
                 }
-                if (text.isNotBlank()) {
+
+                val result = committed.toString().trim()
+                if (result.isNotBlank()) {
                     val current = _messageText.value
-                    _messageText.value = if (current.isBlank()) text.trim() else "$current ${text.trim()}"
+                    _messageText.value = if (current.isBlank()) result else "$current $result"
                 }
-            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                Log.e(TAG, "Audio file transcription timed out", e)
-                whisperManager.abortTranscription()
-                _statusMessage.value = "Transcription timed out"
-                viewModelScope.launch {
-                    delay(4000)
-                    _statusMessage.compareAndSet("Transcription timed out", null)
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Log.i(TAG, "Audio file transcription cancelled")
             } catch (e: Exception) {
                 Log.e(TAG, "Audio file transcription failed", e)
                 _statusMessage.value = "Audio transcription failed: ${e.message}"
@@ -361,7 +376,12 @@ If you can answer from your existing knowledge, answer normally without using th
                 }
             } finally {
                 _isTranscribing.value = false
-                _statusMessage.compareAndSet("Transcribing audio file...", null)
+                _liveTranscription.value = ""
+                // Clear progress messages; error messages have their own delayed clear
+                val msg = _statusMessage.value
+                if (msg != null && !msg.contains("failed") && !msg.contains("timed out")) {
+                    _statusMessage.value = null
+                }
             }
         }
     }

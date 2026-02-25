@@ -119,7 +119,6 @@ fun ChatScreen(
     val filteredModels by viewModel.filteredModels.collectAsState()
     val modelsLoaded by viewModel.modelsLoaded.collectAsState()
     val whisperModelState by viewModel.whisperModelState.collectAsState()
-    val transcriptionProgress by viewModel.transcriptionProgress.collectAsState()
     val liveTranscription by viewModel.liveTranscription.collectAsState()
     val whisperLanguage by viewModel.whisperLanguage.collectAsState()
 
@@ -234,11 +233,11 @@ fun ChatScreen(
             attachedFilesWordCount = attachedFiles.sumOf { countWords(it.content) },
             filteredModels = filteredModels,
             whisperModelState = whisperModelState,
-            transcriptionProgress = transcriptionProgress,
             liveTranscription = liveTranscription,
             whisperLanguage = whisperLanguage,
             onWhisperLanguageChange = { viewModel.setWhisperLanguage(it) },
             onAttachAudio = { ctx, uri -> viewModel.attachAudioFile(ctx, uri) },
+            onCancelTranscription = { viewModel.cancelTranscription() },
         )
     }
 
@@ -456,11 +455,11 @@ private fun ChatInputBar(
     attachedFilesWordCount: Int,
     filteredModels: List<ai.privatemode.android.data.model.ApiModel>,
     whisperModelState: WhisperModelState = WhisperModelState.NotDownloaded,
-    transcriptionProgress: Int = 0,
     liveTranscription: String = "",
     whisperLanguage: String = "auto",
     onWhisperLanguageChange: (String) -> Unit = {},
     onAttachAudio: (context: android.content.Context, uri: android.net.Uri) -> Unit = { _, _ -> },
+    onCancelTranscription: () -> Unit = {},
 ) {
     val languageOptions = listOf("auto", "en", "de")
     val whisperModelReady = whisperModelState is WhisperModelState.Ready
@@ -584,7 +583,7 @@ private fun ChatInputBar(
                 }
             }
 
-            // Text input or waveform
+            // Text input, waveform, or live transcription
             if (isRecording) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (liveTranscription.isNotBlank()) {
@@ -611,6 +610,21 @@ private fun ChatInputBar(
                             .height(if (liveTranscription.isNotBlank()) 36.dp else 56.dp),
                     )
                 }
+            } else if (isTranscribing && liveTranscription.isNotBlank()) {
+                val scrollState = rememberScrollState()
+                LaunchedEffect(liveTranscription) {
+                    scrollState.animateScrollTo(scrollState.maxValue)
+                }
+                Text(
+                    text = liveTranscription,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(80.dp)
+                        .verticalScroll(scrollState)
+                        .padding(4.dp),
+                )
             } else {
                 OutlinedTextField(
                     value = messageText,
@@ -630,6 +644,40 @@ private fun ChatInputBar(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Status row (above buttons)
+            val downloadingState = whisperModelState as? WhisperModelState.Downloading
+            if (isUploading || isTranscribing || statusMessage != null || downloadingState != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = statusMessage
+                            ?: if (downloadingState != null) "STT model ${(downloadingState.progress * 100).roundToInt()}%"
+                            else if (isTranscribing) "Transcribing..."
+                            else "Uploading...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (statusMessage != null && (statusMessage.contains("failed") || statusMessage.contains("timed out"))) ErrorRed else TextTertiary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (isTranscribing) {
+                        IconButton(
+                            onClick = onCancelTranscription,
+                            modifier = Modifier.size(28.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Cancel transcription",
+                                modifier = Modifier.size(16.dp),
+                                tint = TextTertiary,
+                            )
+                        }
+                    }
+                }
+            }
 
             // Button row
             Row(
@@ -792,21 +840,6 @@ private fun ChatInputBar(
                         }
                     }
 
-                    val downloadingState = whisperModelState as? WhisperModelState.Downloading
-                    if (isUploading || isTranscribing || statusMessage != null || downloadingState != null) {
-                        Text(
-                            text = statusMessage
-                                ?: if (downloadingState != null) "STT ${(downloadingState.progress * 100).roundToInt()}%"
-                                else if (isTranscribing) "Transcribing${if (transcriptionProgress > 0) " ${transcriptionProgress}%" else "..."}"
-                                else "Uploading...",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (statusMessage != null) ErrorRed else TextTertiary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 180.dp),
-                        )
-                    }
-
                     // Extended thinking toggle
                     AnimatedVisibility(visible = supportsExtendedThinking) {
                         IconButton(
@@ -947,7 +980,7 @@ private fun ModelPickerButton(
             color = BackgroundLight,
         ) {
             Text(
-                text = selectedModel?.let { MODEL_CONFIG[it]?.displayName } ?: "Select model",
+                text = selectedModel?.let { MODEL_CONFIG[it]?.shortName } ?: "Model",
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelMedium,
                 color = TextPrimary,
