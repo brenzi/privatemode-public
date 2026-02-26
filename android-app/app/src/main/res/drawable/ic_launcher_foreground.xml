@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.8"
+        android:scaleY="0.8"
+        android:pivotX="54"
+        android:pivotY="54">
+        <!-- Purple dot (above the i) -->
+        <path
+            android:fillColor="#7A49F6"
+            android:pathData="M37,30.5C37,34.09 34.09,37 30.5,37C26.91,37 24,34.09 24,30.5C24,26.91 26.91,24 30.5,24C34.09,24 37,26.91 37,30.5Z" />
+        <!-- Vertical bar (i stem) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M40,46H52V84H40V46Z" />
+        <!-- Ring (o shape) -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:fillType="evenOdd"
+            android:pathData="M62,56C67.52,56 72,51.52 72,46C72,40.48 67.52,36 62,36C56.48,36 52,40.48 52,46C52,51.52 56.48,56 62,56ZM62,68C74.15,68 84,58.15 84,46C84,33.85 74.15,24 62,24C49.85,24 40,33.85 40,46C40,58.15 49.85,68 62,68Z" />
+    </group>
+</vector>
